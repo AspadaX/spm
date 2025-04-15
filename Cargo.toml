@@ -9,3 +9,6 @@ repository = "https://github.com/aspadax/spm"
 license = "MIT"
 
 [dependencies]
+anyhow = "1.0.98"
+clap = { version = "4.5.27", features = ["cargo", "derive", "string"] }
+which = "7.0.3"
