@@ -1,0 +1,11 @@
+[package]
+name = "spm"
+version = "0.1.0"
+edition = "2024"
+description = "Shell Package Manager written in Rust with native AI support."
+authors =  ["Xinyu Bao <baoxinyuworks@163.com>"]
+readme = "README.md"
+repository = "https://github.com/aspadax/spm"
+license = "MIT"
+
+[dependencies]
