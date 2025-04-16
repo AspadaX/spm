@@ -1,4 +1,5 @@
 mod arguments;
+mod package;
 mod shell;
 
 use arguments::{Arguments, Commands};
@@ -13,13 +14,13 @@ fn main() {
     match arguments.commands {
         Commands::Run(subcommand) => {
             execute_shell_script(&subcommand.expression);
-        },
-        Commands::Install(subcommand) => {},
-        Commands::List(_) => {},
-        Commands::Uninstall(subcommand) => {},
-        Commands::Check(subcommand) => {},
-        Commands::New(subcommand) => {},
-        Commands::Initialize(_) => {},
+        }
+        Commands::Install(subcommand) => {}
+        Commands::List(_) => {}
+        Commands::Uninstall(subcommand) => {}
+        Commands::Check(subcommand) => {}
+        Commands::New(subcommand) => {}
+        Commands::Initialize(_) => {}
         Commands::Version(_) => {}
     }
 }

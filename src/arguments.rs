@@ -1,8 +1,10 @@
 use clap::{
+    Args, Parser, Subcommand,
     builder::{
-        styling::{AnsiColor, Effects},
         Styles,
-    }, crate_authors, crate_version, crate_description, Args, Parser, Subcommand
+        styling::{AnsiColor, Effects},
+    },
+    crate_authors, crate_description, crate_version,
 };
 
 // Configures Clap v3-style help menu colors
@@ -41,13 +43,13 @@ pub enum Commands {
     Initialize(InitializeArguments),
     /// Check version info
     #[clap(short_flag = 'v')]
-    Version(VersionArguments)
+    Version(VersionArguments),
 }
 
 #[derive(Debug, Args)]
 #[command(group = clap::ArgGroup::new("sources").required(true).multiple(false))]
 pub struct RunArguments {
-    /// Index of the shell script, or a path to a shell script, or keyword(s) of a shell script. 
+    /// Index of the shell script, or a path to a shell script, or keyword(s) of a shell script.
     /// Single keyword: `spm run keyword1`.
     /// Multiple keywords: `spm run "keyword1 keyword2"`.
     #[arg(group = "sources")]
