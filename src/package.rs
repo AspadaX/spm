@@ -78,8 +78,8 @@ impl Default for Package {
 
 impl From<File> for Package {
     fn from(value: File) -> Self {
-        let package: Package = serde_json::from_reader(value)
-            .expect("Failed to parse JSON file into Package");
+        let package: Package =
+            serde_json::from_reader(value).expect("Failed to parse JSON file into Package");
         package
     }
 }
@@ -98,14 +98,16 @@ impl Package {
             ..Default::default()
         }
     }
-    
+
     /// Load `package.json`
     pub fn from_file(file: &Path) -> Result<Self, Error> {
         let package_json_path: PathBuf = file.join("package.json");
         if !package_json_path.is_file() {
-            return Err(anyhow!("The package.json file is missing in the provided package path"));
+            return Err(anyhow!(
+                "The package.json file is missing in the provided package path"
+            ));
         }
-        
+
         Ok(serde_json::from_reader(File::open(&package_json_path)?)?)
     }
 }
@@ -117,18 +119,21 @@ pub struct PackageManager {
 }
 
 impl PackageManager {
-    
-    pub fn new(shell_type: ShellType) -> Result<Self, Error> {
-        Ok(
-            Self {
-                root_directory: dirs::home_dir()
-                    .ok_or_else(|| anyhow!("Failed to locate home directory"))?
-                    .join(".spm"),
-                shell_type,
-            }
-        )
+    pub fn new() -> Result<Self, Error> {
+        let shell_type = if cfg!(target_os = "windows") {
+            ShellType::Cmd
+        } else {
+            ShellType::Bash
+        };
+
+        Ok(Self {
+            root_directory: dirs::home_dir()
+                .ok_or_else(|| anyhow!("Failed to locate home directory"))?
+                .join(".spm"),
+            shell_type,
+        })
     }
-    
+
     /// Returns the path to the package installation directory.
     ///
     /// This directory is located under the root directory of the package manager
@@ -149,7 +154,7 @@ impl PackageManager {
     pub fn access_package_installation_directory(&self) -> PathBuf {
         self.root_directory.join("packages")
     }
-    
+
     /// Returns the full path to the entrypoint script of the package.
     ///
     /// # Example
@@ -162,7 +167,7 @@ impl PackageManager {
     /// let path = PathBuf::from("/path/to/package").join(&package.entrypoint);
     /// assert_eq!(path.to_str().unwrap(), "/path/to/package/main.sh");
     /// ```
-    pub fn create_package(path_to_package: &Path, package: &Package) -> Result<(), Error> {
+    pub fn create_package(&self, path_to_package: &Path, package: &Package) -> Result<(), Error> {
         if !path_to_package.is_dir() {
             return Err(anyhow!(
                 "A shell script project must be initialized in a directory!"
@@ -177,7 +182,7 @@ impl PackageManager {
             String::from("#! /bin/bash\n\nmain() {\n    echo \"Hello World!\"\n}\n\nmain");
         match std::fs::File::create_new(path_to_package.join("main.sh")) {
             Ok(mut file) => {
-                file.write_fmt(format_args!("{}", main_script_content));
+                file.write_fmt(format_args!("{}", main_script_content))?;
             }
             Err(_) => {
                 return Err(anyhow!(
@@ -189,7 +194,7 @@ impl PackageManager {
         // Create a `package.json`
         match std::fs::File::create_new(path_to_package.join("package.json")) {
             Ok(file) => {
-                serde_json::to_writer_pretty(file, package);
+                serde_json::to_writer_pretty(file, package)?;
             }
             Err(_) => {
                 return Err(anyhow!(
@@ -226,7 +231,7 @@ impl PackageManager {
 
         Ok(())
     }
-    
+
     /// Retrieves the list of installed packages by scanning the package installation directory (`~/.spm/packages`).
     ///
     /// # Returns
@@ -266,7 +271,8 @@ impl PackageManager {
                 let package_json_path: PathBuf = path.join("package.json");
 
                 if package_json_path.is_file() {
-                    let package: Package = serde_json::from_reader(File::open(&package_json_path)?)?;
+                    let package: Package =
+                        serde_json::from_reader(File::open(&package_json_path)?)?;
                     installed_packages.push(PackageMetadata {
                         package_json_content: package.clone(),
                         path_to_package: path.clone(),
@@ -280,7 +286,7 @@ impl PackageManager {
 
         Ok(installed_packages)
     }
-    
+
     /// Installs a package by copying or moving it to the package installation directory
     /// and executing its setup script if available.
     ///
@@ -320,7 +326,7 @@ impl PackageManager {
     pub fn install_package(&self, path_to_package: &Path, is_move: bool) -> Result<(), Error> {
         let spm_dir: PathBuf = self.access_package_installation_directory();
         let package = Package::from_file(path_to_package)?;
-        
+
         if !spm_dir.exists() {
             std::fs::create_dir_all(&spm_dir)?;
         }
@@ -349,7 +355,7 @@ impl PackageManager {
 
         Ok(())
     }
-    
+
     /// Recursively copies the contents of a directory from the source path to the destination path.
     ///
     /// This function ensures that all files and subdirectories in the source directory are copied
@@ -427,7 +433,7 @@ impl PackageManager {
     /// ```
     pub fn uninstall_package(path_to_package: &Path) -> Result<(), Error> {
         let package = Package::from_file(path_to_package)?;
-        
+
         if !path_to_package.exists() {
             return Err(anyhow!("The specified package path does not exist"));
         }

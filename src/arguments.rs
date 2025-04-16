@@ -39,8 +39,8 @@ pub enum Commands {
     Check(CheckArguments),
     /// Create a new shell script project
     New(NewArguments),
-    /// Initialize a shell script project under the current working directory
-    Initialize(InitializeArguments),
+    /// Create a new shell script project under the current working directory
+    Init(InitializeArguments),
     /// Check version info
     #[clap(short_flag = 'v')]
     Version(VersionArguments),
@@ -94,16 +94,25 @@ pub struct NewArguments {
     /// Name the generated shell script, by default,
     /// it will be a template file.
     #[arg(group = "sources")]
-    pub name: Option<String>,
-    /// If specified, spm will generate a shell script by using a LLM provided
-    /// in the environment variables
-    #[arg(short, long, group = "sources")]
-    pub prompt: Option<String>,
+    pub name: String,
+    // If specified, the project will be a library.
+    // Otherwise, it is an executable program.
+    #[arg(short, long, group = "sources", default_value_t = false)]
+    pub lib: bool,
+    // /// If specified, spm will generate a shell script by using a LLM provided
+    // /// in the environment variables
+    // #[arg(short, long, group = "sources")]
+    // pub prompt: Option<String>,
 }
 
 #[derive(Debug, Args)]
-#[command(group = clap::ArgGroup::new("sources").required(false).multiple(false))]
-pub struct InitializeArguments;
+#[command(group = clap::ArgGroup::new("sources").required(false).multiple(true))]
+pub struct InitializeArguments {
+    // If specified, the project will be a library.
+    // Otherwise, it is an executable program.
+    #[arg(short, long, group = "sources", default_value_t = false)]
+    pub lib: bool,
+}
 
 #[derive(Debug, Args)]
 #[command(group = clap::ArgGroup::new("sources").required(false).multiple(false))]
