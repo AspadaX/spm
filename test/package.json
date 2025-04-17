@@ -1,0 +1,11 @@
+{
+  "name": "test",
+  "description": "Default description",
+  "version": "0.1.0",
+  "entrypoint": "main.sh",
+  "install": {
+    "setup_script": "install.sh",
+    "register_to_environment_tool": false
+  },
+  "uninstall": "uninstall.sh"
+}
