@@ -1,7 +1,6 @@
+use std::io::Write;
 use std::{
-    fs::{DirEntry, File},
-    io::Write,
-    path::{Path, PathBuf},
+    fs::{DirEntry, File}, path::{Path, PathBuf}
 };
 
 use anyhow::{Error, Result, anyhow};
@@ -10,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::shell::{ShellType, WhichInterpreter};
 
 /// Represent the package's metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub struct PackageMetadata {
     package_json_content: Package,
     path_to_package: PathBuf,
@@ -32,8 +31,22 @@ impl Into<Package> for PackageMetadata {
     }
 }
 
+impl PackageMetadata {
+    pub fn get_pacakge_name(&self) -> &str {
+        &self.package_json_content.name
+    }
+    
+    pub fn get_description(&self) -> &str {
+        &self.package_json_content.description
+    }
+
+    pub fn get_version(&self) -> &str {
+        &self.package_json_content.version
+    }
+}
+
 /// Represent the installation options
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InstallationOptions {
     // Script to run when using `spm run`
     setup_script: String,
@@ -44,7 +57,7 @@ pub struct InstallationOptions {
 
 /// Represent the `package.json` file under each shell script project's
 /// root directory.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub struct Package {
     // The name of the project. In the format of `package-name`.
     name: String,
@@ -110,6 +123,10 @@ impl Package {
 
         Ok(serde_json::from_reader(File::open(&package_json_path)?)?)
     }
+
+    pub fn access_main_entrypoint(&self) -> &str {
+        &self.entrypoint
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -125,13 +142,136 @@ impl PackageManager {
         } else {
             ShellType::Bash
         };
+        
+        let root_directory: PathBuf = dirs::home_dir()
+            .ok_or_else(|| anyhow!("Failed to locate home directory"))?
+            .join(".spm");
+        
+        if !root_directory.exists() {
+            // Temporarily use this way to create a `packages` folder. It will need to be 
+            // groupped to somewhere later. 
+            match std::fs::create_dir_all(&root_directory.join("packages")) {
+                Ok(_) => (),
+                Err(e) => return Err(anyhow!("Failed to create .spm directory: {}", e)),
+            }
+        }
 
         Ok(Self {
-            root_directory: dirs::home_dir()
-                .ok_or_else(|| anyhow!("Failed to locate home directory"))?
-                .join(".spm"),
+            root_directory,
             shell_type,
         })
+    }
+    
+    /// Retrieves a `PackageMetadata` object by its name.
+    ///
+    /// This function searches through the installed packages and returns the `PackageMetadata`
+    /// of the package that matches the provided name.
+    ///
+    /// # Arguments
+    ///
+    /// * `package_name` - A `String` representing the name of the package to search for.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing:
+    /// - `Ok(PackageMetadata)` if the package is found.
+    /// - `Err(Error)` if the package is not found or if an error occurs during the search.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error if:
+    /// - The package installation directory cannot be accessed.
+    /// - The package with the specified name is not found.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use your_crate_name::{PackageManager, PackageMetadata};
+    ///
+    /// let package_manager = PackageManager::new().unwrap();
+    /// let package_name = "example_package".to_string();
+    ///
+    /// match package_manager.get_package_by_name(package_name) {
+    ///     Ok(package_metadata) => {
+    ///         println!("Found package: {}", package_metadata.get_pacakge_name());
+    ///     }
+    ///     Err(e) => eprintln!("Error: {}", e),
+    /// }
+    /// ```
+    pub fn get_package_by_name(&self, package_name: String) -> Result<PackageMetadata, Error> {
+        let installed_packages: Vec<PackageMetadata> = self.get_installed_packages()?;
+        for package in installed_packages {
+            if package.get_pacakge_name() == package_name {
+                return Ok(package);
+            }
+        }
+        Err(anyhow!("Package with name '{}' not found", package_name))
+    }
+
+    pub fn keyword_search(&self, keywords: String) -> Result<Vec<PackageMetadata>, Error> {
+        let words: Vec<String> = keywords
+            .split(" ")
+            .map(|keyword: &str| keyword.to_lowercase())
+            .collect();
+        let mut matched_packages: Vec<(PackageMetadata, usize)> = Vec::new();
+
+        if let Ok(packages) = self.get_installed_packages() {
+            for package in packages {
+                let package_words: Vec<String> = package.package_json_content.name
+                    .split("-")
+                    .map(|item| item.to_string())
+                    .collect();
+                
+                if package_words.is_empty() {
+                    continue;
+                }
+                
+                for word in words.iter() {
+                    // Skip if the keyword is empty
+                    if word.is_empty() {
+                        continue;
+                    }
+                    
+                    // When a keyword is found in the name
+                    if package_words.contains(word) {
+                        let mut is_existing: bool = false;
+                        // Increment the match count if the package is already in the list
+                        for matched_package in &mut matched_packages {
+                            if matched_package.0 == package {
+                                matched_package.1 += 1;
+                                is_existing = true;
+                            }
+                        }
+                        
+                        // Add the package to the list if the package is not already in the list
+                        if !is_existing {
+                            matched_packages.push(
+                                (package.clone(), 1)
+                            );
+                        }
+                        
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Sort the packages by match count in descending order
+        matched_packages
+            .sort_by(
+                |a, b| 
+                b.1.cmp(&a.1)
+            );
+        
+        let mut results: Vec<PackageMetadata> = Vec::new();
+        for matched_package in matched_packages {
+            // Skip the packages if the score is zero
+            if matched_package.1 != 0 {
+                results.push(matched_package.0);
+            }
+        }
+
+        Ok(results)
     }
 
     /// Returns the path to the package installation directory.
@@ -431,7 +571,7 @@ impl PackageManager {
     ///     Err(e) => eprintln!("Failed to uninstall package: {}", e),
     /// }
     /// ```
-    pub fn uninstall_package(path_to_package: &Path) -> Result<(), Error> {
+    fn uninstall_package(&self, path_to_package: &Path) -> Result<(), Error> {
         let package = Package::from_file(path_to_package)?;
 
         if !path_to_package.exists() {
@@ -453,4 +593,58 @@ impl PackageManager {
 
         Ok(())
     }
+    
+    pub fn uninstall_package_by_name(&self, package_name: String) -> Result<(), Error> {
+        let package_metadata: PackageMetadata = self.get_package_by_name(package_name)?;
+        
+        self.uninstall_package(package_metadata.path_to_package.as_path())
+    }
+}
+
+/// Checks if a given directory contains a `package.json` file, indicating it is a package.
+///
+/// # Arguments
+///
+/// * `path` - A reference to the path of the directory to check.
+///
+/// # Returns
+///
+/// A `Result` containing a boolean value:
+/// - `true` if the directory contains a `package.json` file.
+/// - `false` otherwise.
+///
+/// # Errors
+///
+/// Returns an `Error` if the directory cannot be read or if any IO operation fails.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use your_crate_name::is_inside_a_package;
+///
+/// let path = Path::new("/path/to/directory");
+/// match is_inside_a_package(path) {
+///     Ok(is_package) => {
+///         if is_package {
+///             println!("The directory is a package.");
+///         } else {
+///             println!("The directory is not a package.");
+///         }
+///     }
+///     Err(e) => eprintln!("Error checking directory: {}", e),
+/// }
+/// ```
+pub fn is_inside_a_package(path: &Path) -> Result<bool, Error> {
+    let directory_items: std::fs::ReadDir = path.read_dir().unwrap();
+
+    for item in directory_items {
+        let item: DirEntry = item?;
+
+        if item.file_name().to_string_lossy().to_string() == "package.json" {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }

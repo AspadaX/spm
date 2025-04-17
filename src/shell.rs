@@ -1,5 +1,7 @@
 use std::process::Command;
 
+use anyhow::{Error, Result, anyhow};
+
 pub trait WhichInterpreter {
     /// Get the intepreter of the corresponding data structure
     fn get_intepreter(&self) -> String;
@@ -24,17 +26,30 @@ impl WhichInterpreter for ShellType {
     }
 }
 
-pub fn execute_shell_script(shell_script: &str) {
+pub fn execute_shell_script(shell_script: &str) -> Result<(), Error> {
     if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", shell_script])
-            .status()
-            .expect("Windows Bash Intepreter failed to start");
-        return;
+        match Command::new("cmd").args(["/C", shell_script]).status() {
+            Ok(status) if !status.success() => {
+                return Err(anyhow!(
+                    "Windows CMD interpreter exited with a non-zero status"
+                ));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                return Err(anyhow!("Failed to start Windows CMD interpreter: {}", e));
+            }
+        }
     }
 
-    Command::new("sh")
-        .arg(shell_script)
-        .status()
-        .expect("Shell intepreter failed to start");
+    match Command::new("sh").arg(shell_script).status() {
+        Ok(status) if !status.success() => {
+            return Err(anyhow!("Shell interpreter exited with a non-zero status"));
+        }
+        Ok(_) => {}
+        Err(e) => {
+            return Err(anyhow!("Failed to start shell interpreter: {}", e));
+        }
+    }
+
+    Ok(())
 }

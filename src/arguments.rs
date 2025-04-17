@@ -73,11 +73,7 @@ pub struct UninstallArguments {
     /// Index to your shell script in the bookmark.
     /// Can be obtained with `spm list`
     #[arg(group = "sources")]
-    pub index: Option<usize>,
-    /// Completely reset the bookmark. This is useful
-    /// when `spm` breaks.
-    #[arg(short, long, group = "sources", default_value = "false")]
-    pub reset: bool,
+    pub expression: String,
 }
 
 #[derive(Debug, Args)]

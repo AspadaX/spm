@@ -1,14 +1,17 @@
 mod arguments;
 mod package;
 mod shell;
+mod utilities;
+mod display_control;
 
 use std::path::{Path, PathBuf};
 
 use arguments::{Arguments, Commands};
-use clap::Parser;
+use clap::{Parser, crate_version};
 use console::Term;
+
 use package::{Package, PackageManager};
-use shell::execute_shell_script;
+use utilities::{execute_run_command, show_packages};
 
 fn main() {
     // Create a terminal display
@@ -28,9 +31,12 @@ fn main() {
 
     // Map the arguments to corresponding code logics
     match arguments.commands {
-        Commands::Run(subcommand) => {
-            execute_shell_script(&subcommand.expression);
-        }
+        Commands::Run(subcommand) => match execute_run_command(subcommand.expression) {
+            Ok(_) => {}
+            Err(error) => terminal
+                .write_line(&format!("{}", error.to_string()))
+                .unwrap(),
+        },
         Commands::Install(subcommand) => {
             match package_manager.install_package(Path::new(&subcommand.path), false) {
                 Ok(_) => terminal
@@ -41,9 +47,34 @@ fn main() {
                     .unwrap(),
             }
         }
-        Commands::List(_) => {}
-        Commands::Uninstall(subcommand) => {}
-        Commands::Check(subcommand) => {}
+        Commands::List(_) => {
+            match package_manager.get_installed_packages() {
+                Ok(packages_metadata) => {
+                    show_packages(&packages_metadata);
+                },
+                Err(error) => {
+                    terminal
+                        .write_line(&format!("Error retrieving installed packages: {}", error.to_string()))
+                        .unwrap();
+                    return;
+                }
+            };
+        }
+        Commands::Uninstall(subcommand) => {
+            match package_manager.uninstall_package_by_name(subcommand.expression) {
+                Ok(_) => terminal
+                    .write_line("Package uninstalled successfully.")
+                    .unwrap(),
+                Err(error) => terminal
+                    .write_line(&format!("Error uninstalling package: {}", error.to_string()))
+                    .unwrap(),
+            }
+        }
+        Commands::Check(_) => {
+            terminal
+                .write_line("The 'Check' feature is still under development.")
+                .unwrap();
+        }
         Commands::New(subcommand) => {
             let working_directory: PathBuf = Path::new("./").join(&subcommand.name);
             match std::fs::create_dir(&working_directory) {
@@ -64,8 +95,6 @@ fn main() {
                     .write_line(&format!("{}", error.to_string()))
                     .unwrap(),
             };
-
-            return;
         }
         Commands::Init(subcommand) => {
             let working_directory: &Path = Path::new("./");
@@ -89,9 +118,11 @@ fn main() {
                     .write_line(&format!("{}", error.to_string()))
                     .unwrap(),
             };
-
-            return;
         }
-        Commands::Version(_) => {}
+        Commands::Version(_) => {
+            terminal.write_line(&format!("cchain version: {}", crate_version!())).unwrap();
+        }
     }
+
+    return;
 }
