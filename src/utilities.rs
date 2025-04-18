@@ -1,12 +1,17 @@
 use std::path::Path;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result, anyhow};
 
 use crate::{
-    display_control::{display_form, display_message, display_tree_message, input_message, Level}, package::{is_inside_a_package, Package, PackageManager, PackageMetadata}, shell::execute_shell_script
+    display_control::{Level, display_form, display_message, display_tree_message, input_message},
+    package::{Package, PackageManager, PackageMetadata, is_inside_a_package},
+    shell::execute_shell_script,
 };
 
-pub fn execute_run_command(package_manager: &PackageManager, expression: String) -> Result<(), Error> {
+pub fn execute_run_command(
+    package_manager: &PackageManager,
+    expression: String,
+) -> Result<(), Error> {
     let path: &Path = Path::new(&expression);
 
     // Case 1: input is a shell script
@@ -38,7 +43,7 @@ pub fn execute_run_command(package_manager: &PackageManager, expression: String)
     if package_candidates.len() == 0 {
         return Err(anyhow!("No packages found"));
     }
-    
+
     // Run the chain if it is exactly one
     if package_candidates.len() == 1 {
         return execute_shell_script(
@@ -50,13 +55,18 @@ pub fn execute_run_command(package_manager: &PackageManager, expression: String)
                 .to_string(),
         );
     }
-    
+
     display_message(Level::Logging, "Multiple packages found:");
     for (index, package_metadata) in package_candidates.iter().enumerate() {
-        display_tree_message(1, &format!("{}: {}", index + 1, package_metadata.get_pacakge_name()));
+        display_tree_message(
+            1,
+            &format!("{}: {}", index + 1, package_metadata.get_pacakge_name()),
+        );
     }
-    let selection: usize = input_message("Please select a chain to execute:")?.trim().parse::<usize>()?;
-    
+    let selection: usize = input_message("Please select a chain to execute:")?
+        .trim()
+        .parse::<usize>()?;
+
     return execute_shell_script(
         &path
             .join(package_candidates[selection - 1].get_main_entry_point())

@@ -1,12 +1,13 @@
 use std::io::Write;
 use std::{
-    fs::{DirEntry, File}, path::{Path, PathBuf}
+    fs::{DirEntry, File},
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-use crate::shell::{ShellType, WhichInterpreter};
+use crate::shell::ShellType;
 
 /// Represent the package's metadata
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -20,14 +21,7 @@ pub struct PackageMetadata {
 
 impl Into<Package> for PackageMetadata {
     fn into(self) -> Package {
-        Package {
-            name: self.package_json_content.name,
-            description: self.package_json_content.description,
-            version: self.package_json_content.version,
-            entrypoint: self.package_json_content.entrypoint,
-            install: self.package_json_content.install.clone(),
-            uninstall: self.package_json_content.uninstall.clone(),
-        }
+        self.package_json_content
     }
 }
 
@@ -35,7 +29,7 @@ impl PackageMetadata {
     pub fn get_pacakge_name(&self) -> &str {
         &self.package_json_content.name
     }
-    
+
     pub fn get_description(&self) -> &str {
         &self.package_json_content.description
     }
@@ -43,7 +37,7 @@ impl PackageMetadata {
     pub fn get_version(&self) -> &str {
         &self.package_json_content.version
     }
-    
+
     pub fn get_main_entry_point(&self) -> &str {
         self.path_to_entrypoint.as_os_str().to_str().unwrap()
     }
@@ -69,6 +63,8 @@ pub struct Package {
     description: String,
     // The project version, adhering to semantic versioning (semver)
     version: String,
+    // The interpreter used for this project
+    interpreter: ShellType,
     // The shell script executed with `spm run`
     entrypoint: String,
     // Configuration for actions during package installation
@@ -84,6 +80,7 @@ impl Default for Package {
             description: "Default description".to_string(),
             version: "0.1.0".to_string(),
             entrypoint: "main.sh".to_string(),
+            interpreter: ShellType::Sh, // `spm` favors sh to be the default
             install: InstallationOptions {
                 setup_script: "install.sh".to_string(),
                 register_to_environment_tool: false,
@@ -102,7 +99,7 @@ impl From<File> for Package {
 }
 
 impl Package {
-    pub fn new(name: String, is_library: bool) -> Self {
+    pub fn new(name: String, is_library: bool, interpreter: ShellType) -> Self {
         let entrypoint: String = if is_library {
             String::from("lib.sh")
         } else {
@@ -112,6 +109,7 @@ impl Package {
         Self {
             name,
             entrypoint,
+            interpreter,
             ..Default::default()
         }
     }
@@ -146,14 +144,14 @@ impl PackageManager {
         } else {
             ShellType::Bash
         };
-        
+
         let root_directory: PathBuf = dirs::home_dir()
             .ok_or_else(|| anyhow!("Failed to locate home directory"))?
             .join(".spm");
-        
+
         if !root_directory.exists() {
-            // Temporarily use this way to create a `packages` folder. It will need to be 
-            // groupped to somewhere later. 
+            // Temporarily use this way to create a `packages` folder. It will need to be
+            // groupped to somewhere later.
             match std::fs::create_dir_all(&root_directory.join("packages")) {
                 Ok(_) => (),
                 Err(e) => return Err(anyhow!("Failed to create .spm directory: {}", e)),
@@ -165,7 +163,7 @@ impl PackageManager {
             shell_type,
         })
     }
-    
+
     /// Retrieves a `PackageMetadata` object by its name.
     ///
     /// This function searches through the installed packages and returns the `PackageMetadata`
@@ -221,22 +219,23 @@ impl PackageManager {
 
         if let Ok(packages) = self.get_installed_packages() {
             for package in packages {
-                let package_name: String = normalize_package_name(&package.package_json_content.name);
+                let package_name: String =
+                    normalize_package_name(&package.package_json_content.name);
                 let package_words: Vec<String> = package_name
                     .split("-")
                     .map(|item| item.to_string())
                     .collect();
-                
+
                 if package_words.is_empty() {
                     continue;
                 }
-                
+
                 for word in words.iter() {
                     // Skip if the keyword is empty
                     if word.is_empty() {
                         continue;
                     }
-                    
+
                     // When a keyword is found in the name
                     if package_words.contains(word) {
                         let mut is_existing: bool = false;
@@ -247,14 +246,12 @@ impl PackageManager {
                                 is_existing = true;
                             }
                         }
-                        
+
                         // Add the package to the list if the package is not already in the list
                         if !is_existing {
-                            matched_packages.push(
-                                (package.clone(), 1)
-                            );
+                            matched_packages.push((package.clone(), 1));
                         }
-                        
+
                         continue;
                     }
                 }
@@ -262,12 +259,8 @@ impl PackageManager {
         }
 
         // Sort the packages by match count in descending order
-        matched_packages
-            .sort_by(
-                |a, b| 
-                b.1.cmp(&a.1)
-            );
-        
+        matched_packages.sort_by(|a, b| b.1.cmp(&a.1));
+
         let mut results: Vec<PackageMetadata> = Vec::new();
         for matched_package in matched_packages {
             // Skip the packages if the score is zero
@@ -301,6 +294,7 @@ impl PackageManager {
     }
 
     /// Returns the full path to the entrypoint script of the package.
+    /// Create a package locally on the disk. 
     ///
     /// # Example
     ///
@@ -322,9 +316,14 @@ impl PackageManager {
         // Create a `src` folder
         std::fs::create_dir(path_to_package.join("src"))?;
 
+        // Get the shebang based on the interpreter set in `package.json`
+        let shebang: &str = package.interpreter.get_shebang();
+
         // Create a `main.sh` with shebang and hello world in it
-        let main_script_content =
-            String::from("#! /bin/bash\n\nmain() {\n    echo \"Hello World!\"\n}\n\nmain");
+        let main_script_content: String = format!(
+            "{}\n\nmain() {{\n    echo \"Hello World!\"\n}}\n\nmain",
+            shebang
+        );
         match std::fs::File::create_new(path_to_package.join("main.sh")) {
             Ok(mut file) => {
                 file.write_fmt(format_args!("{}", main_script_content))?;
@@ -352,7 +351,7 @@ impl PackageManager {
         let setup_script_content: &String = &package.install.setup_script;
         match std::fs::File::create_new(path_to_package.join(setup_script_content)) {
             Ok(mut file) => {
-                file.write_all(b"#!/bin/bash\n\necho \"Setting up the package...\"")?;
+                file.write_all(format!("{}\n\necho \"Setting up the package...\"", shebang).as_bytes())?;
             }
             Err(_) => {
                 return Err(anyhow!(
@@ -365,7 +364,7 @@ impl PackageManager {
         let uninstall_script_content: &String = &package.uninstall;
         match std::fs::File::create_new(path_to_package.join(uninstall_script_content)) {
             Ok(mut file) => {
-                file.write_all(b"#!/bin/bash\n\necho \"Uninstalling the package...\"")?;
+                file.write_all(format!("{}\n\necho \"Uninstalling the package...\"", shebang).as_bytes())?;
             }
             Err(_) => {
                 return Err(anyhow!(
@@ -468,7 +467,12 @@ impl PackageManager {
     ///     Err(e) => eprintln!("Failed to install package: {}", e),
     /// }
     /// ```
-    pub fn install_package(&self, path_to_package: &Path, is_move: bool, is_force: bool) -> Result<(), Error> {
+    pub fn install_package(
+        &self,
+        path_to_package: &Path,
+        is_move: bool,
+        is_force: bool,
+    ) -> Result<(), Error> {
         let spm_dir: PathBuf = self.access_package_installation_directory();
         let package = Package::from_file(path_to_package)?;
 
@@ -487,7 +491,7 @@ impl PackageManager {
                 "The package already installed. Use `--force` (-F) flag to force an install or update"
             ));
         }
-        
+
         if is_move {
             std::fs::rename(path_to_package, &destination)?;
         } else {
@@ -496,7 +500,7 @@ impl PackageManager {
 
         let setup_script_path: PathBuf = destination.join(package.install.setup_script);
         if setup_script_path.is_file() {
-            std::process::Command::new(self.shell_type.get_intepreter())
+            std::process::Command::new(self.shell_type.to_string())
                 .arg(setup_script_path)
                 .status()
                 .map_err(|e| anyhow!("Failed to execute setup script: {}", e))?;
@@ -604,10 +608,10 @@ impl PackageManager {
 
         Ok(())
     }
-    
+
     pub fn uninstall_package_by_name(&self, package_name: String) -> Result<(), Error> {
         let package_metadata: PackageMetadata = self.get_package_by_name(package_name)?;
-        
+
         self.uninstall_package(package_metadata.path_to_package.as_path())
     }
 }
@@ -662,7 +666,7 @@ pub fn is_inside_a_package(path: &Path) -> Result<bool, Error> {
 
 pub fn normalize_package_name(name: &str) -> String {
     let standardized_separator: &str = "-";
-    
+
     // Replace underscores with hyphens
     let mut normalized_name = name.replace("_", standardized_separator);
 
@@ -671,7 +675,10 @@ pub fn normalize_package_name(name: &str) -> String {
         .chars()
         .flat_map(|c| {
             if c.is_uppercase() {
-                vec![standardized_separator.to_string(), c.to_lowercase().to_string()]
+                vec![
+                    standardized_separator.to_string(),
+                    c.to_lowercase().to_string(),
+                ]
             } else {
                 vec![c.to_string()]
             }
@@ -679,5 +686,7 @@ pub fn normalize_package_name(name: &str) -> String {
         .collect::<String>();
 
     // Remove leading hyphen if present
-    normalized_name.trim_start_matches(standardized_separator).to_string()
+    normalized_name
+        .trim_start_matches(standardized_separator)
+        .to_string()
 }
