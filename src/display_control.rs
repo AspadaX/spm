@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use anyhow::{Error, Result};
-use console::{style, Term};
+use console::{Term, style};
 use prettytable::{Cell, Row, Table};
 
 #[derive(Debug, Clone, Copy)]
@@ -10,15 +10,15 @@ pub enum Level {
     Error,
     Warn,
     Selection,
-    Input
+    Input,
 }
 
 pub fn display_command_line(terminal: &Term, message: &str) {
     let indentation: String = "    ".to_string();
     for line in message.lines() {
-        terminal.write_line(
-            &format!("{}{}", indentation, style(line).dim())
-        ).unwrap();
+        terminal
+            .write_line(&format!("{}{}", indentation, style(line).dim()))
+            .unwrap();
     }
 }
 

@@ -65,7 +65,7 @@ fn main() {
 
             match package_manager.create_package(
                 working_directory.as_path(),
-                &Package::new(subcommand.name, subcommand.lib),
+                &Package::new(subcommand.name, subcommand.lib, subcommand.interpreter.into()),
             ) {
                 Ok(_) => display_message(display_control::Level::Logging, "Package created successfully."),
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
@@ -84,6 +84,7 @@ fn main() {
                         .to_string_lossy()
                         .to_string(),
                     subcommand.lib,
+                    subcommand.interpreter.into()
                 ),
             ) {
                 Ok(_) => display_message(display_control::Level::Logging, "Package created successfully."),

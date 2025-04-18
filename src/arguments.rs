@@ -7,6 +7,8 @@ use clap::{
     crate_authors, crate_description, crate_version,
 };
 
+use crate::shell::ShellType;
+
 // Configures Clap v3-style help menu colors
 const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
@@ -94,6 +96,12 @@ pub struct NewArguments {
     /// it will be a template file.
     #[arg(group = "sources")]
     pub name: String,
+    // Specify the interpreter to use.
+    // In UNIX-like system, `sh` is the default.
+    // In Windows, `cmd` is the default.
+    // Currently support: `sh`, `bash`, `zsh`, `cmd`.
+    #[arg(short = 'I', long, group = "sources", default_value = "sh")]
+    pub interpreter: String,
     // If specified, the project will be a library.
     // Otherwise, it is an executable program.
     #[arg(short, long, group = "sources", default_value_t = false)]
@@ -111,6 +119,12 @@ pub struct InitializeArguments {
     // Otherwise, it is an executable program.
     #[arg(short, long, group = "sources", default_value_t = false)]
     pub lib: bool,
+    // Specify the interpreter to use.
+    // In UNIX-like system, `sh` is the default.
+    // In Windows, `cmd` is the default.
+    // Currently support: `sh`, `bash`, `zsh`, `cmd`.
+    #[arg(short = 'I', long, group = "sources", default_value = "sh")]
+    pub interpreter: String,
 }
 
 #[derive(Debug, Args)]
