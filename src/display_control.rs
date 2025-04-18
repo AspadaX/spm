@@ -1,3 +1,6 @@
+use std::io::Write;
+
+use anyhow::{Error, Result};
 use console::{style, Term};
 use prettytable::{Cell, Row, Table};
 
@@ -46,4 +49,16 @@ pub fn display_form(column_labels: Vec<&str>, rows: &Vec<Vec<String>>) {
     }
 
     table.printstd();
+}
+
+pub fn input_message(prompt: &str) -> Result<String, Error> {
+    // display the prompt message for inputting values
+    display_message(Level::Input, prompt);
+    // collect the input as a string
+    let mut input = String::new();
+    // receive stdin
+    std::io::stdout().flush()?;
+    std::io::stdin().read_line(&mut input)?;
+
+    Ok(input)
 }
