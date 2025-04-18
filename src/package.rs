@@ -43,6 +43,10 @@ impl PackageMetadata {
     pub fn get_version(&self) -> &str {
         &self.package_json_content.version
     }
+    
+    pub fn get_main_entry_point(&self) -> &str {
+        self.path_to_entrypoint.as_os_str().to_str().unwrap()
+    }
 }
 
 /// Represent the installation options
@@ -208,16 +212,17 @@ impl PackageManager {
         Err(anyhow!("Package with name '{}' not found", package_name))
     }
 
-    pub fn keyword_search(&self, keywords: String) -> Result<Vec<PackageMetadata>, Error> {
+    pub fn keyword_search(&self, keywords: &str) -> Result<Vec<PackageMetadata>, Error> {
         let words: Vec<String> = keywords
-            .split(" ")
+            .split(",")
             .map(|keyword: &str| keyword.to_lowercase())
             .collect();
         let mut matched_packages: Vec<(PackageMetadata, usize)> = Vec::new();
 
         if let Ok(packages) = self.get_installed_packages() {
             for package in packages {
-                let package_words: Vec<String> = package.package_json_content.name
+                let package_name: String = normalize_package_name(&package.package_json_content.name);
+                let package_words: Vec<String> = package_name
                     .split("-")
                     .map(|item| item.to_string())
                     .collect();
@@ -463,7 +468,7 @@ impl PackageManager {
     ///     Err(e) => eprintln!("Failed to install package: {}", e),
     /// }
     /// ```
-    pub fn install_package(&self, path_to_package: &Path, is_move: bool) -> Result<(), Error> {
+    pub fn install_package(&self, path_to_package: &Path, is_move: bool, is_force: bool) -> Result<(), Error> {
         let spm_dir: PathBuf = self.access_package_installation_directory();
         let package = Package::from_file(path_to_package)?;
 
@@ -477,6 +482,12 @@ impl PackageManager {
                 .ok_or_else(|| anyhow!("Invalid package path"))?,
         );
 
+        if destination.exists() && !is_force {
+            return Err(anyhow!(
+                "The package already installed. Use `--force` (-F) flag to force an install or update"
+            ));
+        }
+        
         if is_move {
             std::fs::rename(path_to_package, &destination)?;
         } else {
@@ -647,4 +658,26 @@ pub fn is_inside_a_package(path: &Path) -> Result<bool, Error> {
     }
 
     Ok(false)
+}
+
+pub fn normalize_package_name(name: &str) -> String {
+    let standardized_separator: &str = "-";
+    
+    // Replace underscores with hyphens
+    let mut normalized_name = name.replace("_", standardized_separator);
+
+    // Replace uppercase letters with lowercase prefixed by a hyphen
+    normalized_name = normalized_name
+        .chars()
+        .flat_map(|c| {
+            if c.is_uppercase() {
+                vec![standardized_separator.to_string(), c.to_lowercase().to_string()]
+            } else {
+                vec![c.to_string()]
+            }
+        })
+        .collect::<String>();
+
+    // Remove leading hyphen if present
+    normalized_name.trim_start_matches(standardized_separator).to_string()
 }

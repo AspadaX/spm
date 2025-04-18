@@ -57,11 +57,14 @@ pub struct RunArguments {
 }
 
 #[derive(Debug, Args)]
-#[command(group = clap::ArgGroup::new("sources").required(true).multiple(false))]
+#[command(group = clap::ArgGroup::new("sources").required(true).multiple(true))]
 pub struct InstallArguments {
     /// Path to your shell script project, or a url to a shell script project git repository
     #[arg(group = "sources")]
     pub path: String,
+    /// Force to install the package, or perform an update. Use `-F` for short.
+    #[arg(short = 'F', long, group = "sources", default_value_t = false)]
+    pub force: bool,
 }
 
 #[derive(Debug, Parser)]
