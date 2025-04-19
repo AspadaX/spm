@@ -11,7 +11,7 @@ use clap::{Parser, crate_version};
 
 use display_control::display_message;
 use package::{Package, PackageManager};
-use utilities::{execute_run_command, show_packages};
+use utilities::{execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages};
 
 fn main() {
     // Parse command line arguments
@@ -32,7 +32,26 @@ fn main() {
             Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
         },
         Commands::Install(subcommand) => {
-            match package_manager.install_package(Path::new(&subcommand.path), false, subcommand.force) {
+            let package_path: PathBuf;
+            let mut is_move: bool = false;
+            
+            // Determine whether this is a remote installation, or local
+            if is_git_repository_link(&subcommand.path) {
+                package_path = match fetch_remote_git_repository(&subcommand.base_url, &subcommand.path) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        display_message(display_control::Level::Error, &format!("{}", error.to_string()));
+                        return;
+                    },
+                };
+                
+                // Move the local git repository for installations
+                is_move = true;
+            } else {
+                package_path = Path::new(&subcommand.path).to_path_buf();
+            }
+            
+            match package_manager.install_package(&package_path, is_move, subcommand.force) {
                 Ok(_) => display_message(display_control::Level::Logging, "Package installation succeeded."),
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
             }

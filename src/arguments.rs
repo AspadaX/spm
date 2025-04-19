@@ -67,6 +67,11 @@ pub struct InstallArguments {
     /// Force to install the package, or perform an update. Use `-F` for short.
     #[arg(short = 'F', long, group = "sources", default_value_t = false)]
     pub force: bool,
+    /// Specify a base url if you would like to install a package hosted in 
+    /// a differet git repository other than GitHub. 
+    /// Use `-u` for short.
+    #[arg(short = 'u', long, group = "sources", default_value = "https://github.com")]
+    pub base_url: String
 }
 
 #[derive(Debug, Parser)]
