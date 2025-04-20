@@ -17,4 +17,4 @@ install-path = "CARGO_HOME"
 install-updater = true
 
 [dist.github-custom-runners]
-runner = "ubuntu-latest"
+global = "ubuntu-latest"
