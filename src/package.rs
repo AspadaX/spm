@@ -229,6 +229,14 @@ impl PackageManager {
                 if package_words.is_empty() {
                     continue;
                 }
+                
+                // If exactly matches the input and the package name
+                if &package.package_json_content.name == keywords {
+                    matched_packages.push((package.clone(), 1));
+                }
+                if package_name == keywords {
+                    matched_packages.push((package.clone(), 1));
+                }
 
                 for word in words.iter() {
                     // Skip if the keyword is empty
