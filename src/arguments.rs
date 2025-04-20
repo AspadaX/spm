@@ -7,8 +7,6 @@ use clap::{
     crate_authors, crate_description, crate_version,
 };
 
-use crate::shell::ShellType;
-
 // Configures Clap v3-style help menu colors
 const STYLES: Styles = Styles::styled()
     .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
@@ -49,12 +47,12 @@ pub enum Commands {
 }
 
 #[derive(Debug, Args)]
-#[command(group = clap::ArgGroup::new("sources").required(true).multiple(false))]
+#[command(group = clap::ArgGroup::new("sources").required(false).multiple(false))]
 pub struct RunArguments {
-    /// Index of the shell script, or a path to a shell script, or keyword(s) of a shell script.
+    /// A path to a shell script, or keyword(s) of a shell script.
     /// Single keyword: `spm run keyword1`.
     /// Multiple keywords: `spm run "keyword1 keyword2"`.
-    #[arg(group = "sources")]
+    #[arg(group = "sources", default_value = ".")]
     pub expression: String,
 }
 
