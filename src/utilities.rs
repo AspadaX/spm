@@ -37,8 +37,8 @@ pub fn execute_run_command(
                     .to_string(),
             );
         }
-    }
-
+    } 
+    
     // Case 3: Input is a keyword or keywords
     let package_candidates: Vec<PackageMetadata> = package_manager.keyword_search(&expression)?;
     // Throw an error if no chains are found
