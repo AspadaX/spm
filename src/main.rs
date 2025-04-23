@@ -11,7 +11,7 @@ use clap::{Parser, crate_version};
 
 use display_control::display_message;
 use package::{Package, PackageManager};
-use utilities::{execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages};
+use utilities::{execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages, is_directory_in_path};
 
 fn main() {
     // Parse command line arguments
@@ -25,6 +25,9 @@ fn main() {
         }
     };
 
+    // Check if the binary directory is in the user's PATH
+    utilities::check_bin_directory_in_path(&package_manager);
+    
     // Map the arguments to corresponding code logics
     match arguments.commands {
         Commands::Run(subcommand) => match execute_run_command(&package_manager, subcommand.expression) {

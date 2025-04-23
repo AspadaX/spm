@@ -74,8 +74,11 @@ impl Display for ShellType {
 }
 
 pub fn execute_shell_script(shell_script: &str) -> Result<(), Error> {
+    let script_path: &std::path::Path = std::path::Path::new(shell_script);
+    let script_dir: &std::path::Path = script_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+
     if cfg!(target_os = "windows") {
-        match Command::new("cmd").args(["/C", shell_script]).status() {
+        match Command::new("cmd").args(["/C", shell_script]).current_dir(script_dir).status() {
             Ok(status) if !status.success() => {
                 return Err(anyhow!(
                     "Windows CMD interpreter exited with a non-zero status"
@@ -88,7 +91,7 @@ pub fn execute_shell_script(shell_script: &str) -> Result<(), Error> {
         }
     }
 
-    match Command::new("sh").arg(shell_script).status() {
+    match Command::new("sh").arg(shell_script).current_dir(script_dir).status() {
         Ok(status) if !status.success() => {
             return Err(anyhow!("Shell interpreter exited with a non-zero status"));
         }

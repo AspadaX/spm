@@ -102,10 +102,6 @@ pub fn fetch_remote_git_repository(base_url: &str, repository: &str) -> Result<P
         clone_url.push_str(&format!("{}{}", base_url, repository));
     }
     
-    let current_dir: PathBuf = std::env::current_dir()?
-        .canonicalize()?
-        .join(repository.split("/").last().unwrap()); // Namespace for pacakges?
-    
     // Initialize git configurations
     let auth: GitAuthenticator = GitAuthenticator::default();
     let git_config: Config = Config::open_default()?;
@@ -126,11 +122,244 @@ pub fn fetch_remote_git_repository(base_url: &str, repository: &str) -> Result<P
         .fetch_options(
             fetch_options
         )
-        .clone(&clone_url, &current_dir)?;
+        .clone(&clone_url, &dirs::home_dir().unwrap().join(".spm").join("packages").join(repository))?;
     
     return Ok(repository.workdir().unwrap().to_path_buf());
 }
 
 pub fn is_git_repository_link(expression: &str) -> bool {
     !Path::new(expression).exists()
+}
+
+/// Checks if a given directory is in the user's PATH environment variable.
+///
+/// This function compares the provided directory path with each directory in the PATH,
+/// accounting for possible path normalization and canonicalization.
+///
+/// # Arguments
+///
+/// * `dir` - A reference to the path to check for in the PATH.
+///
+/// # Returns
+///
+/// A boolean that is `true` if the directory is in the PATH, or `false` otherwise.
+pub fn is_directory_in_path(dir: &Path) -> bool {
+    // Get the PATH environment variable
+    let path = match std::env::var("PATH") {
+        Ok(p) => p,
+        Err(_) => return false, // If PATH isn't defined, return false
+    };
+
+    // Canonicalize the input directory if possible
+    let canonical_dir = match dir.canonicalize() {
+        Ok(d) => d,
+        Err(_) => return false, // If the directory doesn't exist, return false
+    };
+
+    // Split the PATH by the platform-specific path separator and check each directory
+    for path_dir in std::env::split_paths(&path) {
+        // Try to canonicalize the path directory
+        if let Ok(canonical_path_dir) = path_dir.canonicalize() {
+            if canonical_path_dir == canonical_dir {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Checks if the binary directory is in the PATH and sets it up automatically if not.
+/// This function automatically adds the SPM bin directory to the user's PATH during first run.
+///
+/// # Arguments
+///
+/// * `package_manager` - A reference to the PackageManager to check its binary directory.
+pub fn check_bin_directory_in_path(package_manager: &PackageManager) {
+    if let Ok(bin_dir) = package_manager.get_bin_directory() {
+        if !is_directory_in_path(&bin_dir) {
+            let path_str = bin_dir.to_string_lossy();
+            
+            // Setting up automatically on first run
+            display_message(
+                Level::Logging,
+                &format!("Setting up SPM environment: adding '{}' to your PATH.", path_str)
+            );
+            
+            match setup_environment_for_user(&bin_dir) {
+                Ok(_) => {
+                    display_message(
+                        Level::Logging, 
+                        &format!("Successfully added '{}' to your PATH. You may need to restart your terminal or run 'source ~/.bashrc' (or your shell's equivalent) for changes to take effect.", path_str)
+                    );
+                },
+                Err(e) => {
+                    display_message(
+                        Level::Error,
+                        &format!("Failed to set up environment: {}", e)
+                    );
+                    display_message(
+                        Level::Warn,
+                        &format!("Please manually add '{}' to your PATH to use SPM commands.", path_str)
+                    );
+                    
+                    // Show manual setup instructions
+                    if cfg!(target_os = "windows") {
+                        display_message(
+                            Level::Warn,
+                            "To add it to your PATH, update your Environment Variables through System Properties."
+                        );
+                    } else {
+                        display_message(
+                            Level::Warn,
+                            &format!("Add the following line to your shell profile (~/.bashrc, ~/.zshrc, etc.):\nexport PATH=\"{}:$PATH\"", path_str)
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Sets up the environment for the user by adding the SPM bin directory to their PATH.
+///
+/// # Arguments
+///
+/// * `bin_dir` - A reference to the path of the bin directory to add to PATH.
+///
+/// # Returns
+///
+/// A `Result` indicating success or failure.
+fn setup_environment_for_user(bin_dir: &Path) -> Result<(), Error> {
+    let path_str = bin_dir.to_string_lossy();
+    
+    // Determine which shell configuration file to modify
+    let home_dir = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
+    
+    // Try to identify the user's shell
+    let shell_var = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/bash"));
+    
+    let config_file = if shell_var.contains("zsh") {
+        home_dir.join(".zshrc")
+    } else if shell_var.contains("fish") {
+        home_dir.join(".config/fish/config.fish")
+    } else {
+        // Default to bash
+        home_dir.join(".bashrc")
+    };
+    
+    // Create the configuration file if it doesn't exist
+    if !config_file.exists() {
+        std::fs::File::create(&config_file)?;
+    }
+    
+    // Read the existing content
+    let content = std::fs::read_to_string(&config_file)?;
+    
+    // Check if the PATH export already exists
+    let export_line = if shell_var.contains("fish") {
+        format!("set -gx PATH \"{}\" $PATH", path_str)
+    } else {
+        format!("export PATH=\"{}:$PATH\"", path_str)
+    };
+    
+    if !content.contains(&export_line) {
+        // Append the export line to the end of the file
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&config_file)?;
+        
+        use std::io::Write;
+        
+        // Add a newline if the file doesn't end with one
+        if !content.ends_with('\n') && !content.is_empty() {
+            writeln!(file)?;
+        }
+        
+        // Add a comment explaining what this is for
+        writeln!(file, "\n# Added by Shell Package Manager (SPM)")?;
+        writeln!(file, "{}", export_line)?;
+        
+        // For fish shell, we might need to do something different
+        if shell_var.contains("fish") {
+            // Execute the command to make it take effect in the current session
+            std::process::Command::new("fish")
+                .arg("-c")
+                .arg(&export_line)
+                .output()
+                .ok(); // Ignore errors here
+        }
+    }
+    
+    Ok(())
+}
+
+/// Cleans up the environment by removing SPM directory from the user's PATH.
+/// This function is called when the user uninstalls SPM.
+///
+/// # Arguments
+///
+/// * `package_manager` - A reference to the PackageManager to check its binary directory.
+///
+/// # Returns
+///
+/// A `Result` indicating success or failure.
+pub fn cleanup_environment(package_manager: &PackageManager) -> Result<(), Error> {
+    if let Ok(bin_dir) = package_manager.get_bin_directory() {
+        let path_str = bin_dir.to_string_lossy();
+        
+        // Determine which shell configuration file to modify
+        let home_dir = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
+        
+        // Try to identify the user's shell
+        let shell_var = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/bash"));
+        
+        let config_files = vec![
+            home_dir.join(".bashrc"),
+            home_dir.join(".zshrc"),
+            home_dir.join(".config/fish/config.fish")
+        ];
+        
+        for config_file in config_files {
+            if config_file.exists() {
+                // Read the content
+                let content = std::fs::read_to_string(&config_file)?;
+                
+                // Find and remove SPM-related lines
+                let mut new_lines = Vec::new();
+                let mut skip_next = false;
+                
+                for line in content.lines() {
+                    if skip_next {
+                        skip_next = false;
+                        continue;
+                    }
+                    
+                    if line.contains("# Added by Shell Package Manager (SPM)") {
+                        skip_next = true;
+                        continue;
+                    }
+                    
+                    if (line.contains(&format!("export PATH=\"{}:$PATH\"", path_str)) || 
+                        line.contains(&format!("set -gx PATH \"{}\" $PATH", path_str))) &&
+                        !line.trim().starts_with('#') {
+                        continue;
+                    }
+                    
+                    new_lines.push(line);
+                }
+                
+                // Write the filtered content back
+                std::fs::write(&config_file, new_lines.join("\n"))?;
+                
+                display_message(
+                    Level::Logging,
+                    &format!("Removed SPM from {}", config_file.display())
+                );
+            }
+        }
+    }
+    
+    Ok(())
 }

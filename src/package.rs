@@ -8,6 +8,7 @@ use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use crate::shell::ShellType;
+use crate::display_control::{Level, display_message};
 
 /// Represent the package's metadata
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -162,6 +163,22 @@ impl PackageManager {
             root_directory,
             shell_type,
         })
+    }
+
+    /// Returns the path to the binary directory where executable scripts are symlinked.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `PathBuf` to the binary directory, or an `Error` if there was a problem.
+    pub fn get_bin_directory(&self) -> Result<PathBuf, Error> {
+        let bin_dir = self.root_directory.join("bin");
+        
+        // Create the bin directory if it doesn't exist
+        if !bin_dir.exists() {
+            std::fs::create_dir_all(&bin_dir)?;
+        }
+        
+        Ok(bin_dir)
     }
 
     /// Retrieves a `PackageMetadata` object by its name.
@@ -621,6 +638,40 @@ impl PackageManager {
         let package_metadata: PackageMetadata = self.get_package_by_name(package_name)?;
 
         self.uninstall_package(package_metadata.path_to_package.as_path())
+    }
+    
+    /// Completely uninstalls SPM itself, removing all packages, configuration, and cleaning up the PATH.
+    ///
+    /// This method performs the following actions:
+    /// 1. Removes SPM entries from the user's PATH in shell configuration files
+    /// 2. Deletes all installed packages and the SPM directory structure
+    ///
+    /// # Returns
+    ///
+    /// A `Result` indicating success or failure.
+    pub fn uninstall_spm(&self) -> Result<(), Error> {
+        use crate::utilities::cleanup_environment;
+        
+        // First clean up the environment (remove from PATH)
+        cleanup_environment(self)?;
+        
+        // Remove the entire SPM directory
+        if self.root_directory.exists() {
+            display_message(
+                Level::Logging,
+                &format!("Removing SPM directory at {}", self.root_directory.display())
+            );
+            
+            std::fs::remove_dir_all(&self.root_directory)
+                .map_err(|e| anyhow!("Failed to remove SPM directory: {}", e))?;
+                
+            display_message(
+                Level::Logging,
+                "SPM has been completely uninstalled from your system."
+            );
+        }
+        
+        Ok(())
     }
 }
 
