@@ -65,7 +65,41 @@ pub fn execute_run_command(
         }
     }
     
-    // Case 3: Input appears to be a GitHub repository URL
+    // Case 3: Check if it's an installed package name first
+    // Try to find exact package name match (ignoring namespace)
+    let package_candidates: Vec<PackageMetadata> = package_manager.keyword_search(&expression)?;
+    
+    if !package_candidates.is_empty() {
+        // Run the package if it is exactly one match
+        if package_candidates.len() == 1 {
+            let package_metadata = &package_candidates[0];
+            display_message(Level::Logging, &format!("Running package: {}", package_metadata.get_full_name()));
+            return execute_shell_script(package_metadata.get_main_entry_point(), args);
+        }
+
+        // If multiple matches, let user choose
+        display_message(Level::Logging, "Multiple packages found:");
+        for (index, package_metadata) in package_candidates.iter().enumerate() {
+            display_tree_message(
+                1,
+                &format!("{}: {}", index + 1, package_metadata.get_full_name()),
+            );
+        }
+        let selection: usize = input_message("Please select a package to execute:")?
+            .trim()
+            .parse::<usize>()?;
+
+        if selection < 1 || selection > package_candidates.len() {
+            return Err(anyhow!("Invalid selection"));
+        }
+        
+        let selected_package = &package_candidates[selection - 1];
+        display_message(Level::Logging, &format!("Running package: {}", selected_package.get_full_name()));
+        
+        return execute_shell_script(selected_package.get_main_entry_point(), args);
+    }
+    
+    // Case 4: Input appears to be a GitHub repository URL
     if expression.starts_with("http://") || expression.starts_with("https://") || is_git_repository_link(&expression) {
         display_message(Level::Logging, &format!("Fetching package from remote repository: {}", expression));
         
@@ -137,43 +171,8 @@ pub fn execute_run_command(
         }
     }
     
-    // Case 4: Input is a keyword or package name for local search
-    
-    // First try to find exact package name match (ignoring namespace)
-    let package_candidates: Vec<PackageMetadata> = package_manager.keyword_search(&expression)?;
-    
-    // Throw an error if no packages are found
-    if package_candidates.len() == 0 {
-        return Err(anyhow!("No packages found"));
-    }
-
-    // Run the package if it is exactly one match
-    if package_candidates.len() == 1 {
-        let package_metadata = &package_candidates[0];
-        display_message(Level::Logging, &format!("Running package: {}", package_metadata.get_full_name()));
-        return execute_shell_script(package_metadata.get_main_entry_point(), args);
-    }
-
-    // If multiple matches, let user choose
-    display_message(Level::Logging, "Multiple packages found:");
-    for (index, package_metadata) in package_candidates.iter().enumerate() {
-        display_tree_message(
-            1,
-            &format!("{}: {}", index + 1, package_metadata.get_full_name()),
-        );
-    }
-    let selection: usize = input_message("Please select a package to execute:")?
-        .trim()
-        .parse::<usize>()?;
-
-    if selection < 1 || selection > package_candidates.len() {
-        return Err(anyhow!("Invalid selection"));
-    }
-    
-    let selected_package = &package_candidates[selection - 1];
-    display_message(Level::Logging, &format!("Running package: {}", selected_package.get_full_name()));
-    
-    execute_shell_script(selected_package.get_main_entry_point(), args)
+    // If we get here, no packages were found
+    return Err(anyhow!("No packages found with name: {}", expression));
 }
 
 pub fn show_packages(packages_metadata: &Vec<PackageMetadata>) {
