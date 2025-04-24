@@ -11,7 +11,7 @@ use clap::{Parser, crate_version};
 
 use display_control::display_message;
 use package::{Package, PackageManager};
-use utilities::{execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages, is_directory_in_path};
+use utilities::{execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages, is_directory_in_path, cleanup_temp_repository};
 
 fn main() {
     // Parse command line arguments
@@ -30,18 +30,31 @@ fn main() {
     
     // Map the arguments to corresponding code logics
     match arguments.commands {
-        Commands::Run(subcommand) => match execute_run_command(&package_manager, subcommand.expression) {
+        Commands::Run(subcommand) => match execute_run_command(&package_manager, subcommand.expression, &subcommand.args) {
             Ok(_) => {}
             Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
         },
         Commands::Install(subcommand) => {
             let package_path: PathBuf;
             let mut is_move: bool = false;
+            let mut temp_path_opt: Option<PathBuf> = None;
             
             // Determine whether this is a remote installation, or local
             if is_git_repository_link(&subcommand.path) {
+                // Create a subcommand for handling git repository installations
+                let cmd_parts: Vec<&str> = subcommand.path.split("/").collect();
+                if cmd_parts.len() < 2 {
+                    display_message(display_control::Level::Error, "Invalid Git repository format. Expected: username/repo");
+                    return;
+                }
+                
+                // Fetch the repository to a temporary directory
                 package_path = match fetch_remote_git_repository(&subcommand.base_url, &subcommand.path) {
-                    Ok(result) => result,
+                    Ok(result) => {
+                        // Store the temp path for later cleanup
+                        temp_path_opt = Some(result.clone());
+                        result
+                    },
                     Err(error) => {
                         display_message(display_control::Level::Error, &format!("{}", error.to_string()));
                         return;
@@ -54,7 +67,18 @@ fn main() {
                 package_path = Path::new(&subcommand.path).to_path_buf();
             }
             
-            match package_manager.install_package(&package_path, is_move, subcommand.force) {
+            // Install the package
+            let install_result = package_manager.install_package(&package_path, is_move, subcommand.force);
+            
+            // Clean up the temporary directory if used
+            if let Some(temp_path) = temp_path_opt {
+                if let Err(cleanup_err) = cleanup_temp_repository(&temp_path) {
+                    display_message(display_control::Level::Warn, &format!("Failed to clean up temporary directory: {}", cleanup_err));
+                }
+            }
+            
+            // Handle installation result
+            match install_result {
                 Ok(_) => display_message(display_control::Level::Logging, "Package installation succeeded."),
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
             }

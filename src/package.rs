@@ -76,6 +76,9 @@ pub struct Package {
     version: String,
     // The interpreter used for this project
     interpreter: ShellType,
+    // Whether this is a library package
+    #[serde(default)]
+    is_library: bool,
     // The shell script executed with `spm run`
     entrypoint: String,
     // Configuration for actions during package installation
@@ -93,6 +96,7 @@ impl Default for Package {
             version: "0.1.0".to_string(),
             entrypoint: "main.sh".to_string(),
             interpreter: ShellType::Sh, // `spm` favors sh to be the default
+            is_library: false,
             install: InstallationOptions {
                 setup_script: "install.sh".to_string(),
                 register_to_environment_tool: false,
@@ -123,6 +127,7 @@ impl Package {
             namespace: Some("default-namespace".to_string()), // Default namespace
             entrypoint,
             interpreter,
+            is_library,
             ..Default::default()
         }
     }
@@ -139,6 +144,7 @@ impl Package {
             namespace: Some(namespace),
             entrypoint,
             interpreter,
+            is_library,
             ..Default::default()
         }
     }
@@ -431,18 +437,35 @@ impl PackageManager {
         // Get the shebang based on the interpreter set in `package.json`
         let shebang: &str = package.interpreter.get_shebang();
 
-        // Create a `main.sh` with shebang and hello world in it
-        let main_script_content: String = format!(
-            "{}\n\nmain() {{\n    echo \"Hello World!\"\n}}\n\nmain",
-            shebang
-        );
-        match std::fs::File::create_new(path_to_package.join("main.sh")) {
+        // Create entrypoint script (either main.sh or lib.sh) based on whether it's a library
+        let script_content: String;
+        let script_filename: &str;
+        
+        if package.is_library {
+            // Library script content
+            script_filename = "lib.sh";
+            script_content = format!(
+                "{}\n\n# This is a library package\n# Define your functions below\n\ngreet() {{\n    echo \"Hello from the library!\"\n}}\n",
+                shebang
+            );
+        } else {
+            // Main script content
+            script_filename = "main.sh";
+            script_content = format!(
+                "{}\n\nmain() {{\n    echo \"Hello World!\"\n}}\n\nmain",
+                shebang
+            );
+        }
+        
+        // Create the entrypoint script
+        match std::fs::File::create_new(path_to_package.join(script_filename)) {
             Ok(mut file) => {
-                file.write_fmt(format_args!("{}", main_script_content))?;
+                file.write_fmt(format_args!("{}", script_content))?;
             }
             Err(_) => {
                 return Err(anyhow!(
-                    "A `main.sh` file already exists in this directory. Please remove or rename it before proceeding!"
+                    "A `{}` file already exists in this directory. Please remove or rename it before proceeding!",
+                    script_filename
                 ));
             }
         };

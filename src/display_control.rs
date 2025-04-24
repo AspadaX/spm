@@ -11,7 +11,6 @@ pub enum Level {
     Warn,
     Selection,
     Input,
-    Info,
 }
 
 pub fn display_command_line(terminal: &Term, message: &str) {
@@ -32,7 +31,6 @@ pub fn display_message(level: Level, message: &str) {
         Level::Warn => println!("{}{}", indentation, style(message).red()),
         Level::Selection => println!("{}{}", indentation, style(message).blue()),
         Level::Input => print!("{}{} ", indentation, style(message).blue()),
-        Level::Info => println!("{}{}", indentation, style(message).cyan()),
     }
 }
 

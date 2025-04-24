@@ -10,15 +10,40 @@ use crate::{
     shell::execute_shell_script,
 };
 
+// Create the temporary directory for cloning remote repositories
+pub fn create_temp_directory() -> Result<PathBuf, Error> {
+    let temp_dir = dirs::home_dir()
+        .ok_or_else(|| anyhow!("Failed to locate home directory"))?
+        .join(".spm")
+        .join("temp");
+    
+    // Create the temp directory if it doesn't exist
+    if !temp_dir.exists() {
+        std::fs::create_dir_all(&temp_dir)?;
+    }
+    
+    Ok(temp_dir)
+}
+
+// Clean up the temporary directory for a specific repository
+pub fn cleanup_temp_repository(repo_path: &Path) -> Result<(), Error> {
+    if repo_path.exists() && repo_path.starts_with(dirs::home_dir().unwrap().join(".spm").join("temp")) {
+        std::fs::remove_dir_all(repo_path)?;
+    }
+    
+    Ok(())
+}
+
 pub fn execute_run_command(
     package_manager: &PackageManager,
     expression: String,
+    args: &[String],
 ) -> Result<(), Error> {
     let path: &Path = Path::new(&expression);
 
     // Case 1: input is a shell script
     if path.is_file() {
-        return execute_shell_script(&expression);
+        return execute_shell_script(&expression, args);
     }
 
     // Case 2: input is a shell script project/package
@@ -35,6 +60,7 @@ pub fn execute_run_command(
                     .unwrap()
                     .to_string_lossy()
                     .to_string(),
+                args,
             );
         }
     }
@@ -71,7 +97,7 @@ pub fn execute_run_command(
             &expression
         };
         
-        // Fetch the repository
+        // Fetch the repository to a temporary directory
         let temp_dir = match fetch_remote_git_repository(base_url, repo_path) {
             Ok(dir) => dir,
             Err(e) => return Err(anyhow!("Failed to fetch remote repository: {}", e)),
@@ -84,15 +110,29 @@ pub fn execute_run_command(
             
             display_message(Level::Logging, &format!("Running package: {}", package.get_full_name()));
             
-            return execute_shell_script(
+            // Run the script
+            let result = execute_shell_script(
                 &temp_dir
                     .join(main_entrypoint_filename)
                     .canonicalize()
                     .unwrap()
                     .to_string_lossy()
                     .to_string(),
+                args,
             );
+            
+            // Clean up the temporary directory
+            if let Err(cleanup_err) = cleanup_temp_repository(&temp_dir) {
+                display_message(Level::Warn, &format!("Failed to clean up temporary directory: {}", cleanup_err));
+            }
+            
+            return result;
         } else {
+            // Clean up even on failure
+            if let Err(cleanup_err) = cleanup_temp_repository(&temp_dir) {
+                display_message(Level::Warn, &format!("Failed to clean up temporary directory: {}", cleanup_err));
+            }
+            
             return Err(anyhow!("The fetched repository does not contain a valid package"));
         }
     }
@@ -111,8 +151,7 @@ pub fn execute_run_command(
     if package_candidates.len() == 1 {
         let package_metadata = &package_candidates[0];
         display_message(Level::Logging, &format!("Running package: {}", package_metadata.get_full_name()));
-        
-        return execute_shell_script(package_metadata.get_main_entry_point());
+        return execute_shell_script(package_metadata.get_main_entry_point(), args);
     }
 
     // If multiple matches, let user choose
@@ -134,7 +173,7 @@ pub fn execute_run_command(
     let selected_package = &package_candidates[selection - 1];
     display_message(Level::Logging, &format!("Running package: {}", selected_package.get_full_name()));
     
-    execute_shell_script(selected_package.get_main_entry_point())
+    execute_shell_script(selected_package.get_main_entry_point(), args)
 }
 
 pub fn show_packages(packages_metadata: &Vec<PackageMetadata>) {
@@ -175,12 +214,14 @@ pub fn fetch_remote_git_repository(base_url: &str, repository: &str) -> Result<P
     fetch_options.proxy_options(proxy_options);
     fetch_options.remote_callbacks(remote_callbacks);
     
-    // Clone
+    // Create a temp directory for the repository
+    let temp_dir = create_temp_directory()?;
+    let repo_temp_dir = temp_dir.join(repository);
+    
+    // Clone into the temporary directory
     let repository: Repository = RepoBuilder::new()
-        .fetch_options(
-            fetch_options
-        )
-        .clone(&clone_url, &dirs::home_dir().unwrap().join(".spm").join("packages").join(repository))?;
+        .fetch_options(fetch_options)
+        .clone(&clone_url, &repo_temp_dir)?;
     
     return Ok(repository.workdir().unwrap().to_path_buf());
 }

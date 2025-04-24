@@ -54,6 +54,10 @@ pub struct RunArguments {
     /// Multiple keywords: `spm run "keyword1 keyword2"`.
     #[arg(group = "sources", default_value = ".")]
     pub expression: String,
+
+    /// Additional arguments to pass to the shell script
+    #[arg(trailing_var_arg = true)]
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Args)]
