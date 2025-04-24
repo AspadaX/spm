@@ -73,12 +73,19 @@ impl Display for ShellType {
     }
 }
 
-pub fn execute_shell_script(shell_script: &str) -> Result<(), Error> {
+pub fn execute_shell_script(shell_script: &str, args: &[String]) -> Result<(), Error> {
     let script_path: &std::path::Path = std::path::Path::new(shell_script);
     let script_dir: &std::path::Path = script_path.parent().unwrap_or_else(|| std::path::Path::new("."));
 
     if cfg!(target_os = "windows") {
-        match Command::new("cmd").args(["/C", shell_script]).current_dir(script_dir).status() {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", shell_script]).current_dir(script_dir);
+        // Add additional arguments if provided
+        if !args.is_empty() {
+            cmd.args(args);
+        }
+        
+        match cmd.status() {
             Ok(status) if !status.success() => {
                 return Err(anyhow!(
                     "Windows CMD interpreter exited with a non-zero status"
@@ -91,7 +98,14 @@ pub fn execute_shell_script(shell_script: &str) -> Result<(), Error> {
         }
     }
 
-    match Command::new("sh").arg(shell_script).current_dir(script_dir).status() {
+    let mut cmd = Command::new("sh");
+    cmd.arg(shell_script).current_dir(script_dir);
+    // Add additional arguments if provided
+    if !args.is_empty() {
+        cmd.args(args);
+    }
+    
+    match cmd.status() {
         Ok(status) if !status.success() => {
             return Err(anyhow!("Shell interpreter exited with a non-zero status"));
         }
