@@ -85,30 +85,32 @@ fn main() {
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
             };
 
-            match package_manager.create_package(
-                working_directory.as_path(),
-                &Package::new(subcommand.name, subcommand.lib, subcommand.interpreter.into()),
-            ) {
+            let package = match subcommand.namespace {
+                Some(namespace) => Package::new_with_namespace(subcommand.name, namespace, subcommand.lib, subcommand.interpreter.into()),
+                None => Package::new(subcommand.name, subcommand.lib, subcommand.interpreter.into()),
+            };
+
+            match package_manager.create_package(working_directory.as_path(), &package) {
                 Ok(_) => display_message(display_control::Level::Logging, "Package created successfully."),
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
             };
         }
         Commands::Init(subcommand) => {
             let working_directory: &Path = Path::new("./");
-            match package_manager.create_package(
-                working_directory,
-                &Package::new(
-                    working_directory
-                        .canonicalize()
-                        .unwrap()
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .to_string(),
-                    subcommand.lib,
-                    subcommand.interpreter.into()
-                ),
-            ) {
+            let folder_name = working_directory
+                .canonicalize()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+                
+            let package = match subcommand.namespace {
+                Some(namespace) => Package::new_with_namespace(folder_name, namespace, subcommand.lib, subcommand.interpreter.into()),
+                None => Package::new(folder_name, subcommand.lib, subcommand.interpreter.into()),
+            };
+
+            match package_manager.create_package(working_directory, &package) {
                 Ok(_) => display_message(display_control::Level::Logging, "Package created successfully."),
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
             };

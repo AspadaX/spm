@@ -42,6 +42,14 @@ impl PackageMetadata {
     pub fn get_main_entry_point(&self) -> &str {
         self.path_to_entrypoint.as_os_str().to_str().unwrap()
     }
+
+    pub fn get_namespace(&self) -> Option<&String> {
+        self.package_json_content.namespace.as_ref()
+    }
+
+    pub fn get_full_name(&self) -> String {
+        self.package_json_content.get_full_name()
+    }
 }
 
 /// Represent the installation options
@@ -60,6 +68,8 @@ pub struct InstallationOptions {
 pub struct Package {
     // The name of the project. In the format of `package-name`.
     name: String,
+    // The namespace for the package (optional). In the format of `namespace`.
+    namespace: Option<String>,
     // A brief description of the project
     description: String,
     // The project version, adhering to semantic versioning (semver)
@@ -78,6 +88,7 @@ impl Default for Package {
     fn default() -> Self {
         Package {
             name: "".to_string(),
+            namespace: Some("default-namespace".to_string()),
             description: "Default description".to_string(),
             version: "0.1.0".to_string(),
             entrypoint: "main.sh".to_string(),
@@ -109,6 +120,23 @@ impl Package {
 
         Self {
             name,
+            namespace: Some("default-namespace".to_string()), // Default namespace
+            entrypoint,
+            interpreter,
+            ..Default::default()
+        }
+    }
+
+    pub fn new_with_namespace(name: String, namespace: String, is_library: bool, interpreter: ShellType) -> Self {
+        let entrypoint: String = if is_library {
+            String::from("lib.sh")
+        } else {
+            String::from("main.sh")
+        };
+
+        Self {
+            name,
+            namespace: Some(namespace),
             entrypoint,
             interpreter,
             ..Default::default()
@@ -129,6 +157,17 @@ impl Package {
 
     pub fn access_main_entrypoint(&self) -> &str {
         &self.entrypoint
+    }
+
+    pub fn get_namespace(&self) -> Option<&String> {
+        self.namespace.as_ref()
+    }
+
+    pub fn get_full_name(&self) -> String {
+        match &self.namespace {
+            Some(namespace) => format!("{}/{}", namespace, self.name),
+            None => self.name.clone(),
+        }
     }
 }
 
@@ -219,11 +258,45 @@ impl PackageManager {
     /// ```
     pub fn get_package_by_name(&self, package_name: String) -> Result<PackageMetadata, Error> {
         let installed_packages: Vec<PackageMetadata> = self.get_installed_packages()?;
+        
+        // Check if package_name contains a namespace (format: namespace/package)
+        if package_name.contains('/') {
+            let parts: Vec<&str> = package_name.split('/').collect();
+            if parts.len() == 2 {
+                let namespace = parts[0];
+                let name = parts[1];
+                
+                // Try to find a package with matching namespace and name
+                for package in installed_packages {
+                    if let Some(pkg_namespace) = package.get_namespace() {
+                        if pkg_namespace == namespace && package.get_pacakge_name() == name {
+                            return Ok(package);
+                        }
+                    }
+                }
+            }
+            return Err(anyhow!("Package with name '{}' not found", package_name));
+        }
+        
+        // If no namespace specified, first look for exact package name match in any namespace
+        let mut matching_packages = Vec::new();
+        
         for package in installed_packages {
             if package.get_pacakge_name() == package_name {
-                return Ok(package);
+                matching_packages.push(package);
             }
         }
+        
+        // If there's only one match, return it
+        if matching_packages.len() == 1 {
+            return Ok(matching_packages.remove(0));
+        } 
+        // If there are multiple matches in different namespaces, return the first one
+        else if matching_packages.len() > 1 {
+            return Ok(matching_packages.remove(0));
+        }
+        
+        // If no exact match found, return an error
         Err(anyhow!("Package with name '{}' not found", package_name))
     }
 
@@ -236,25 +309,43 @@ impl PackageManager {
 
         if let Ok(packages) = self.get_installed_packages() {
             for package in packages {
-                let package_name: String =
-                    normalize_package_name(&package.package_json_content.name);
+                // Create a full package name including namespace if it exists
+                let full_name = package.get_full_name();
+                let package_name: String = normalize_package_name(&package.package_json_content.name);
+                
+                // Also normalize and search in namespace if one exists
+                let mut namespace_words: Vec<String> = Vec::new();
+                if let Some(namespace) = &package.package_json_content.namespace {
+                    namespace_words = normalize_package_name(namespace)
+                        .split("-")
+                        .map(|item| item.to_string())
+                        .collect();
+                }
+                
+                // Extract words from package name for matching
                 let package_words: Vec<String> = package_name
                     .split("-")
                     .map(|item| item.to_string())
                     .collect();
 
-                if package_words.is_empty() {
+                if package_words.is_empty() && namespace_words.is_empty() {
                     continue;
                 }
                 
-                // If exactly matches the input and the package name
-                if &package.package_json_content.name == keywords {
-                    matched_packages.push((package.clone(), 1));
+                // If exactly matches the input and the package name or full name
+                if &package.package_json_content.name == keywords || 
+                   &full_name == keywords {
+                    matched_packages.push((package.clone(), 2)); // Higher score for exact match
+                    continue;
                 }
+                
                 if package_name == keywords {
                     matched_packages.push((package.clone(), 1));
+                    continue;
                 }
 
+                let mut match_score = 0;
+                
                 for word in words.iter() {
                     // Skip if the keyword is empty
                     if word.is_empty() {
@@ -263,22 +354,18 @@ impl PackageManager {
 
                     // When a keyword is found in the name
                     if package_words.contains(word) {
-                        let mut is_existing: bool = false;
-                        // Increment the match count if the package is already in the list
-                        for matched_package in &mut matched_packages {
-                            if matched_package.0 == package {
-                                matched_package.1 += 1;
-                                is_existing = true;
-                            }
-                        }
-
-                        // Add the package to the list if the package is not already in the list
-                        if !is_existing {
-                            matched_packages.push((package.clone(), 1));
-                        }
-
-                        continue;
+                        match_score += 1;
                     }
+                    
+                    // When a keyword is found in the namespace
+                    if namespace_words.contains(word) {
+                        match_score += 1;
+                    }
+                }
+                
+                // Add the package with its match score if any matches found
+                if match_score > 0 {
+                    matched_packages.push((package.clone(), match_score));
                 }
             }
         }
@@ -432,23 +519,48 @@ impl PackageManager {
 
         let mut installed_packages: Vec<PackageMetadata> = Vec::new();
 
+        // Function to process package directories
+        let process_package_dir = |path: PathBuf| -> Result<Option<PackageMetadata>, Error> {
+            let package_json_path: PathBuf = path.join("package.json");
+            if package_json_path.is_file() {
+                let package: Package = serde_json::from_reader(File::open(&package_json_path)?)?;
+                return Ok(Some(PackageMetadata {
+                    package_json_content: package.clone(),
+                    path_to_package: path.clone(),
+                    path_to_entrypoint: path.join(&package.entrypoint),
+                    path_to_setup_script: path.join(&package.install.setup_script),
+                    path_to_uninstall_script: path.join(&package.uninstall),
+                }));
+            }
+            Ok(None)
+        };
+
+        // Read the root packages directory
         for entry in std::fs::read_dir(spm_dir)? {
             let entry: DirEntry = entry?;
             let path: PathBuf = entry.path();
 
             if path.is_dir() {
+                // Check if this is a namespace directory or a package directory
                 let package_json_path: PathBuf = path.join("package.json");
-
+                
                 if package_json_path.is_file() {
-                    let package: Package =
-                        serde_json::from_reader(File::open(&package_json_path)?)?;
-                    installed_packages.push(PackageMetadata {
-                        package_json_content: package.clone(),
-                        path_to_package: path.clone(),
-                        path_to_entrypoint: path.join(&package.entrypoint),
-                        path_to_setup_script: path.join(&package.install.setup_script),
-                        path_to_uninstall_script: path.join(&package.uninstall),
-                    });
+                    // This is a package directory (non-namespaced package)
+                    if let Some(metadata) = process_package_dir(path)? {
+                        installed_packages.push(metadata);
+                    }
+                } else {
+                    // This could be a namespace directory, check its subdirectories for packages
+                    for namespace_entry in std::fs::read_dir(path)? {
+                        let namespace_entry: DirEntry = namespace_entry?;
+                        let namespace_path: PathBuf = namespace_entry.path();
+                        
+                        if namespace_path.is_dir() {
+                            if let Some(metadata) = process_package_dir(namespace_path)? {
+                                installed_packages.push(metadata);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -499,28 +611,113 @@ impl PackageManager {
         is_force: bool,
     ) -> Result<(), Error> {
         let spm_dir: PathBuf = self.access_package_installation_directory();
-        let package = Package::from_file(path_to_package)?;
+        let package: Package = Package::from_file(path_to_package)?;
 
         if !spm_dir.exists() {
             std::fs::create_dir_all(&spm_dir)?;
         }
 
-        let destination: PathBuf = spm_dir.join(
+        // Determine the destination path based on namespace
+        let mut destination: PathBuf = spm_dir;
+        if let Some(namespace) = &package.namespace {
+            // Create namespace directory if it doesn't exist
+            destination = destination.join(namespace);
+            if !destination.exists() {
+                std::fs::create_dir_all(&destination)?;
+            }
+        }
+
+        // Add the package directory to the destination
+        destination = destination.join(
             path_to_package
                 .file_name()
                 .ok_or_else(|| anyhow!("Invalid package path"))?,
         );
 
+        // Check if this package is forced to overwrite the installed one
         if destination.exists() && !is_force {
             return Err(anyhow!(
                 "The package already installed. Use `--force` (-F) flag to force an install or update"
             ));
         }
 
+        // Whether to move the package to the installation directory. 
+        // Usually we move the package when it is cloned remotely from a git repository. 
         if is_move {
             std::fs::rename(path_to_package, &destination)?;
         } else {
             PackageManager::copy_dir_all(path_to_package, &destination)?;
+        }
+
+        let setup_script_path: PathBuf = destination.join(package.install.setup_script);
+        if setup_script_path.is_file() {
+            std::process::Command::new(self.shell_type.to_string())
+                .arg(setup_script_path)
+                .status()
+                .map_err(|e| anyhow!("Failed to execute setup script: {}", e))?;
+        } else {
+            return Err(anyhow!("Setup script not found in the package"));
+        }
+
+        Ok(())
+    }
+
+    pub fn install_package_with_namespace(
+        &self,
+        path_to_package: &Path,
+        namespace: Option<String>,
+        is_move: bool,
+        is_force: bool,
+    ) -> Result<(), Error> {
+        let spm_dir: PathBuf = self.access_package_installation_directory();
+        let mut package: Package = Package::from_file(path_to_package)?;
+
+        // Override package namespace if one is specified
+        if let Some(ref ns) = namespace {
+            package.namespace = Some(ns.clone());
+        }
+
+        if !spm_dir.exists() {
+            std::fs::create_dir_all(&spm_dir)?;
+        }
+
+        // Determine the destination path based on namespace
+        let mut destination: PathBuf = spm_dir;
+        if let Some(ref ns) = package.namespace {
+            // Create namespace directory if it doesn't exist
+            destination = destination.join(ns);
+            if !destination.exists() {
+                std::fs::create_dir_all(&destination)?;
+            }
+        }
+
+        // Add the package directory to the destination
+        destination = destination.join(
+            path_to_package
+                .file_name()
+                .ok_or_else(|| anyhow!("Invalid package path"))?,
+        );
+
+        // Check if this package is forced to overwrite the installed one
+        if destination.exists() && !is_force {
+            return Err(anyhow!(
+                "The package already installed. Use `--force` (-F) flag to force an install or update"
+            ));
+        }
+
+        // Whether to move the package to the installation directory. 
+        // Usually we move the package when it is cloned remotely from a git repository. 
+        if is_move {
+            std::fs::rename(path_to_package, &destination)?;
+        } else {
+            PackageManager::copy_dir_all(path_to_package, &destination)?;
+        }
+
+        // Save the updated package.json with namespace information if specified
+        if namespace.is_some() {
+            let package_json_path = destination.join("package.json");
+            let file = std::fs::File::create(&package_json_path)?;
+            serde_json::to_writer_pretty(file, &package)?;
         }
 
         let setup_script_path: PathBuf = destination.join(package.install.setup_script);
@@ -723,6 +920,8 @@ pub fn is_inside_a_package(path: &Path) -> Result<bool, Error> {
     Ok(false)
 }
 
+/// Normalize a package name. Use this when not sure about whether the package naming is 
+/// going to be absolutely correct. 
 pub fn normalize_package_name(name: &str) -> String {
     let standardized_separator: &str = "-";
 

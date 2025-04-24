@@ -109,6 +109,9 @@ pub struct NewArguments {
     // Otherwise, it is an executable program.
     #[arg(short, long, group = "sources", default_value_t = false)]
     pub lib: bool,
+    // If specified, the package will be created under this namespace
+    #[arg(short = 'n', long, group = "sources")]
+    pub namespace: Option<String>,
     // /// If specified, spm will generate a shell script by using a LLM provided
     // /// in the environment variables
     // #[arg(short, long, group = "sources")]
@@ -128,6 +131,9 @@ pub struct InitializeArguments {
     // Currently support: `sh`, `bash`, `zsh`, `cmd`.
     #[arg(short = 'I', long, group = "sources", default_value = "sh")]
     pub interpreter: String,
+    // If specified, the package will be created under this namespace
+    #[arg(short = 'n', long, group = "sources")]
+    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Args)]
