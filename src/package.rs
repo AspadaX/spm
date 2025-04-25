@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-use crate::properties::{DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARUY_ENTRYPOINT, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER, DEFAULT_SPM_PACKAGES_FOLDER};
+use crate::properties::{DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARY_ENTRYPOINT, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER, DEFAULT_SPM_PACKAGES_FOLDER};
 use crate::shell::ShellType;
 
 /// Represent the package's metadata
@@ -27,7 +27,7 @@ impl Into<Package> for PackageMetadata {
 }
 
 impl PackageMetadata {
-    pub fn get_pacakge_name(&self) -> &str {
+    pub fn get_package_name(&self) -> &str {
         &self.package_json_content.name
     }
 
@@ -117,7 +117,7 @@ impl From<File> for Package {
 impl Package {
     pub fn new(name: String, is_library: bool, interpreter: ShellType) -> Self {
         let entrypoint: String = if is_library {
-            String::from(DEFAULT_LIBRARUY_ENTRYPOINT)
+            String::from(DEFAULT_LIBRARY_ENTRYPOINT)
         } else {
             String::from(DEFAULT_EXECUTABLE_ENTRYPOINT)
         };
@@ -139,7 +139,7 @@ impl Package {
         interpreter: ShellType,
     ) -> Self {
         let entrypoint: String = if is_library {
-            String::from(DEFAULT_LIBRARUY_ENTRYPOINT)
+            String::from(DEFAULT_LIBRARY_ENTRYPOINT)
         } else {
             String::from(DEFAULT_EXECUTABLE_ENTRYPOINT)
         };
@@ -180,25 +180,18 @@ impl Package {
 
 #[derive(Debug, Clone)]
 pub struct PackageManager {
-    shell_type: ShellType,
     root_directory: PathBuf,
 }
 
 impl PackageManager {
     pub fn new() -> Result<Self, Error> {
-        let shell_type = if cfg!(target_os = "windows") {
-            ShellType::Cmd
-        } else {
-            ShellType::Bash
-        };
-
         let root_directory: PathBuf = dirs::home_dir()
             .ok_or_else(|| anyhow!("Failed to locate home directory"))?
             .join(DEFAULT_SPM_FOLDER);
 
         if !root_directory.exists() {
             // Temporarily use this way to create a `packages` folder. It will need to be
-            // groupped to somewhere later.
+            // grouped to somewhere later.
             match std::fs::create_dir_all(&root_directory.join("packages")) {
                 Ok(_) => (),
                 Err(e) => {
@@ -213,7 +206,6 @@ impl PackageManager {
 
         Ok(Self {
             root_directory,
-            shell_type,
         })
     }
 
@@ -264,7 +256,7 @@ impl PackageManager {
     ///
     /// match package_manager.get_package_by_name(package_name) {
     ///     Ok(package_metadata) => {
-    ///         println!("Found package: {}", package_metadata.get_pacakge_name());
+    ///         println!("Found package: {}", package_metadata.get_package_name());
     ///     }
     ///     Err(e) => eprintln!("Error: {}", e),
     /// }
@@ -282,7 +274,7 @@ impl PackageManager {
                 // Try to find a package with matching namespace and name
                 for package in installed_packages {
                     if let Some(pkg_namespace) = package.get_namespace() {
-                        if pkg_namespace == namespace && package.get_pacakge_name() == name {
+                        if pkg_namespace == namespace && package.get_package_name() == name {
                             return Ok(package);
                         }
                     }
@@ -295,7 +287,7 @@ impl PackageManager {
         let mut matching_packages = Vec::new();
 
         for package in installed_packages {
-            if package.get_pacakge_name() == package_name {
+            if package.get_package_name() == package_name {
                 matching_packages.push(package);
             }
         }
@@ -450,7 +442,7 @@ impl PackageManager {
 
         if package.is_library {
             // Library script content
-            script_filename = DEFAULT_LIBRARUY_ENTRYPOINT;
+            script_filename = DEFAULT_LIBRARY_ENTRYPOINT;
             script_content = format!(
                 "{}\n\n# This is a library package\n# Define your functions below\n\ngreet() {{\n    echo \"Hello from the library!\"\n}}\n",
                 shebang
@@ -686,10 +678,13 @@ impl PackageManager {
 
         let setup_script_path: PathBuf = destination.join(package.install.setup_script);
         if setup_script_path.is_file() {
-            std::process::Command::new(self.shell_type.to_string())
-                .arg(setup_script_path)
-                .status()
-                .map_err(|e| anyhow!("Failed to execute setup script: {}", e))?;
+            // Use the shell execution function with ScriptDirectory context for installation scripts
+            use crate::shell::{execute_shell_script_with_context, ExecutionContext};
+            execute_shell_script_with_context(
+                setup_script_path.to_str().unwrap(),
+                &[],
+                ExecutionContext::ScriptDirectory
+            )?;
         } else {
             return Err(anyhow!("Setup script not found in the package"));
         }
@@ -781,10 +776,13 @@ impl PackageManager {
 
         let uninstall_script_path: PathBuf = path_to_package.join(package.uninstall);
         if uninstall_script_path.is_file() {
-            std::process::Command::new("sh")
-                .arg(uninstall_script_path)
-                .status()
-                .map_err(|e| anyhow!("Failed to execute uninstall script: {}", e))?;
+            // Use the shell execution function with ScriptDirectory context for uninstall scripts
+            use crate::shell::{execute_shell_script_with_context, ExecutionContext};
+            execute_shell_script_with_context(
+                uninstall_script_path.to_str().unwrap(),
+                &[],
+                ExecutionContext::ScriptDirectory
+            )?;
         } else {
             return Err(anyhow!("Uninstall script not found in the package"));
         }

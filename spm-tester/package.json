@@ -1,0 +1,14 @@
+{
+  "name": "spm-tester",
+  "namespace": "spm",
+  "description": "Comprehensive test suite for the Shell Package Manager",
+  "version": "1.0.0",
+  "interpreter": "Sh",
+  "is_library": false,
+  "entrypoint": "main.sh",
+  "install": {
+    "setup_script": "install.sh",
+    "register_to_environment_tool": false
+  },
+  "uninstall": "uninstall.sh"
+}
