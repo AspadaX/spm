@@ -7,8 +7,8 @@ use std::{
 use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
+use crate::properties::{DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARUY_ENTRYPOINT, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER, DEFAULT_SPM_PACKAGES_FOLDER};
 use crate::shell::ShellType;
-use crate::display_control::{Level, display_message};
 
 /// Represent the package's metadata
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -94,7 +94,7 @@ impl Default for Package {
             namespace: Some("default-namespace".to_string()),
             description: "Default description".to_string(),
             version: "0.1.0".to_string(),
-            entrypoint: "main.sh".to_string(),
+            entrypoint: DEFAULT_EXECUTABLE_ENTRYPOINT.to_string(),
             interpreter: ShellType::Sh, // `spm` favors sh to be the default
             is_library: false,
             install: InstallationOptions {
@@ -117,9 +117,9 @@ impl From<File> for Package {
 impl Package {
     pub fn new(name: String, is_library: bool, interpreter: ShellType) -> Self {
         let entrypoint: String = if is_library {
-            String::from("lib.sh")
+            String::from(DEFAULT_LIBRARUY_ENTRYPOINT)
         } else {
-            String::from("main.sh")
+            String::from(DEFAULT_EXECUTABLE_ENTRYPOINT)
         };
 
         Self {
@@ -132,11 +132,16 @@ impl Package {
         }
     }
 
-    pub fn new_with_namespace(name: String, namespace: String, is_library: bool, interpreter: ShellType) -> Self {
+    pub fn new_with_namespace(
+        name: String,
+        namespace: String,
+        is_library: bool,
+        interpreter: ShellType,
+    ) -> Self {
         let entrypoint: String = if is_library {
-            String::from("lib.sh")
+            String::from(DEFAULT_LIBRARUY_ENTRYPOINT)
         } else {
-            String::from("main.sh")
+            String::from(DEFAULT_EXECUTABLE_ENTRYPOINT)
         };
 
         Self {
@@ -151,7 +156,7 @@ impl Package {
 
     /// Load `package.json`
     pub fn from_file(file: &Path) -> Result<Self, Error> {
-        let package_json_path: PathBuf = file.join("package.json");
+        let package_json_path: PathBuf = file.join(DEFAULT_PACKAGE_JSON);
         if !package_json_path.is_file() {
             return Err(anyhow!(
                 "The package.json file is missing in the provided package path"
@@ -163,10 +168,6 @@ impl Package {
 
     pub fn access_main_entrypoint(&self) -> &str {
         &self.entrypoint
-    }
-
-    pub fn get_namespace(&self) -> Option<&String> {
-        self.namespace.as_ref()
     }
 
     pub fn get_full_name(&self) -> String {
@@ -193,14 +194,20 @@ impl PackageManager {
 
         let root_directory: PathBuf = dirs::home_dir()
             .ok_or_else(|| anyhow!("Failed to locate home directory"))?
-            .join(".spm");
+            .join(DEFAULT_SPM_FOLDER);
 
         if !root_directory.exists() {
             // Temporarily use this way to create a `packages` folder. It will need to be
             // groupped to somewhere later.
             match std::fs::create_dir_all(&root_directory.join("packages")) {
                 Ok(_) => (),
-                Err(e) => return Err(anyhow!("Failed to create .spm directory: {}", e)),
+                Err(e) => {
+                    return Err(anyhow!(
+                        "Failed to create {} directory: {}",
+                        DEFAULT_SPM_FOLDER,
+                        e
+                    ));
+                }
             }
         }
 
@@ -217,12 +224,12 @@ impl PackageManager {
     /// A `Result` containing a `PathBuf` to the binary directory, or an `Error` if there was a problem.
     pub fn get_bin_directory(&self) -> Result<PathBuf, Error> {
         let bin_dir = self.root_directory.join("bin");
-        
+
         // Create the bin directory if it doesn't exist
         if !bin_dir.exists() {
             std::fs::create_dir_all(&bin_dir)?;
         }
-        
+
         Ok(bin_dir)
     }
 
@@ -264,14 +271,14 @@ impl PackageManager {
     /// ```
     pub fn get_package_by_name(&self, package_name: String) -> Result<PackageMetadata, Error> {
         let installed_packages: Vec<PackageMetadata> = self.get_installed_packages()?;
-        
+
         // Check if package_name contains a namespace (format: namespace/package)
         if package_name.contains('/') {
             let parts: Vec<&str> = package_name.split('/').collect();
             if parts.len() == 2 {
                 let namespace = parts[0];
                 let name = parts[1];
-                
+
                 // Try to find a package with matching namespace and name
                 for package in installed_packages {
                     if let Some(pkg_namespace) = package.get_namespace() {
@@ -283,25 +290,25 @@ impl PackageManager {
             }
             return Err(anyhow!("Package with name '{}' not found", package_name));
         }
-        
+
         // If no namespace specified, first look for exact package name match in any namespace
         let mut matching_packages = Vec::new();
-        
+
         for package in installed_packages {
             if package.get_pacakge_name() == package_name {
                 matching_packages.push(package);
             }
         }
-        
+
         // If there's only one match, return it
         if matching_packages.len() == 1 {
             return Ok(matching_packages.remove(0));
-        } 
+        }
         // If there are multiple matches in different namespaces, return the first one
         else if matching_packages.len() > 1 {
             return Ok(matching_packages.remove(0));
         }
-        
+
         // If no exact match found, return an error
         Err(anyhow!("Package with name '{}' not found", package_name))
     }
@@ -317,8 +324,9 @@ impl PackageManager {
             for package in packages {
                 // Create a full package name including namespace if it exists
                 let full_name = package.get_full_name();
-                let package_name: String = normalize_package_name(&package.package_json_content.name);
-                
+                let package_name: String =
+                    normalize_package_name(&package.package_json_content.name);
+
                 // Also normalize and search in namespace if one exists
                 let mut namespace_words: Vec<String> = Vec::new();
                 if let Some(namespace) = &package.package_json_content.namespace {
@@ -327,7 +335,7 @@ impl PackageManager {
                         .map(|item| item.to_string())
                         .collect();
                 }
-                
+
                 // Extract words from package name for matching
                 let package_words: Vec<String> = package_name
                     .split("-")
@@ -337,21 +345,20 @@ impl PackageManager {
                 if package_words.is_empty() && namespace_words.is_empty() {
                     continue;
                 }
-                
+
                 // If exactly matches the input and the package name or full name
-                if &package.package_json_content.name == keywords || 
-                   &full_name == keywords {
+                if &package.package_json_content.name == keywords || &full_name == keywords {
                     matched_packages.push((package.clone(), 2)); // Higher score for exact match
                     continue;
                 }
-                
+
                 if package_name == keywords {
                     matched_packages.push((package.clone(), 1));
                     continue;
                 }
 
                 let mut match_score = 0;
-                
+
                 for word in words.iter() {
                     // Skip if the keyword is empty
                     if word.is_empty() {
@@ -362,13 +369,13 @@ impl PackageManager {
                     if package_words.contains(word) {
                         match_score += 1;
                     }
-                    
+
                     // When a keyword is found in the namespace
                     if namespace_words.contains(word) {
                         match_score += 1;
                     }
                 }
-                
+
                 // Add the package with its match score if any matches found
                 if match_score > 0 {
                     matched_packages.push((package.clone(), match_score));
@@ -412,7 +419,7 @@ impl PackageManager {
     }
 
     /// Returns the full path to the entrypoint script of the package.
-    /// Create a package locally on the disk. 
+    /// Create a package locally on the disk.
     ///
     /// # Example
     ///
@@ -440,23 +447,23 @@ impl PackageManager {
         // Create entrypoint script (either main.sh or lib.sh) based on whether it's a library
         let script_content: String;
         let script_filename: &str;
-        
+
         if package.is_library {
             // Library script content
-            script_filename = "lib.sh";
+            script_filename = DEFAULT_LIBRARUY_ENTRYPOINT;
             script_content = format!(
                 "{}\n\n# This is a library package\n# Define your functions below\n\ngreet() {{\n    echo \"Hello from the library!\"\n}}\n",
                 shebang
             );
         } else {
             // Main script content
-            script_filename = "main.sh";
+            script_filename = DEFAULT_EXECUTABLE_ENTRYPOINT;
             script_content = format!(
                 "{}\n\nmain() {{\n    echo \"Hello World!\"\n}}\n\nmain",
                 shebang
             );
         }
-        
+
         // Create the entrypoint script
         match std::fs::File::create_new(path_to_package.join(script_filename)) {
             Ok(mut file) => {
@@ -471,7 +478,7 @@ impl PackageManager {
         };
 
         // Create a `package.json`
-        match std::fs::File::create_new(path_to_package.join("package.json")) {
+        match std::fs::File::create_new(path_to_package.join(DEFAULT_PACKAGE_JSON)) {
             Ok(file) => {
                 serde_json::to_writer_pretty(file, package)?;
             }
@@ -486,7 +493,9 @@ impl PackageManager {
         let setup_script_content: &String = &package.install.setup_script;
         match std::fs::File::create_new(path_to_package.join(setup_script_content)) {
             Ok(mut file) => {
-                file.write_all(format!("{}\n\necho \"Setting up the package...\"", shebang).as_bytes())?;
+                file.write_all(
+                    format!("{}\n\necho \"Setting up the package...\"", shebang).as_bytes(),
+                )?;
             }
             Err(_) => {
                 return Err(anyhow!(
@@ -499,7 +508,9 @@ impl PackageManager {
         let uninstall_script_content: &String = &package.uninstall;
         match std::fs::File::create_new(path_to_package.join(uninstall_script_content)) {
             Ok(mut file) => {
-                file.write_all(format!("{}\n\necho \"Uninstalling the package...\"", shebang).as_bytes())?;
+                file.write_all(
+                    format!("{}\n\necho \"Uninstalling the package...\"", shebang).as_bytes(),
+                )?;
             }
             Err(_) => {
                 return Err(anyhow!(
@@ -535,16 +546,17 @@ impl PackageManager {
         let spm_dir: PathBuf = self.access_package_installation_directory();
 
         if !spm_dir.is_dir() {
-            return Err(anyhow!(
-                "The package installation directory `~/.spm/packages` does not exist"
-            ));
+            return Err(anyhow!(format!(
+                "The package installation directory `~/{}/{}` does not exist",
+                DEFAULT_SPM_FOLDER, DEFAULT_SPM_PACKAGES_FOLDER
+            )));
         }
 
         let mut installed_packages: Vec<PackageMetadata> = Vec::new();
 
         // Function to process package directories
         let process_package_dir = |path: PathBuf| -> Result<Option<PackageMetadata>, Error> {
-            let package_json_path: PathBuf = path.join("package.json");
+            let package_json_path: PathBuf = path.join(DEFAULT_PACKAGE_JSON);
             if package_json_path.is_file() {
                 let package: Package = serde_json::from_reader(File::open(&package_json_path)?)?;
                 return Ok(Some(PackageMetadata {
@@ -565,8 +577,8 @@ impl PackageManager {
 
             if path.is_dir() {
                 // Check if this is a namespace directory or a package directory
-                let package_json_path: PathBuf = path.join("package.json");
-                
+                let package_json_path: PathBuf = path.join(DEFAULT_PACKAGE_JSON);
+
                 if package_json_path.is_file() {
                     // This is a package directory (non-namespaced package)
                     if let Some(metadata) = process_package_dir(path)? {
@@ -577,7 +589,7 @@ impl PackageManager {
                     for namespace_entry in std::fs::read_dir(path)? {
                         let namespace_entry: DirEntry = namespace_entry?;
                         let namespace_path: PathBuf = namespace_entry.path();
-                        
+
                         if namespace_path.is_dir() {
                             if let Some(metadata) = process_package_dir(namespace_path)? {
                                 installed_packages.push(metadata);
@@ -664,83 +676,12 @@ impl PackageManager {
             ));
         }
 
-        // Whether to move the package to the installation directory. 
-        // Usually we move the package when it is cloned remotely from a git repository. 
+        // Whether to move the package to the installation directory.
+        // Usually we move the package when it is cloned remotely from a git repository.
         if is_move {
             std::fs::rename(path_to_package, &destination)?;
         } else {
             PackageManager::copy_dir_all(path_to_package, &destination)?;
-        }
-
-        let setup_script_path: PathBuf = destination.join(package.install.setup_script);
-        if setup_script_path.is_file() {
-            std::process::Command::new(self.shell_type.to_string())
-                .arg(setup_script_path)
-                .status()
-                .map_err(|e| anyhow!("Failed to execute setup script: {}", e))?;
-        } else {
-            return Err(anyhow!("Setup script not found in the package"));
-        }
-
-        Ok(())
-    }
-
-    pub fn install_package_with_namespace(
-        &self,
-        path_to_package: &Path,
-        namespace: Option<String>,
-        is_move: bool,
-        is_force: bool,
-    ) -> Result<(), Error> {
-        let spm_dir: PathBuf = self.access_package_installation_directory();
-        let mut package: Package = Package::from_file(path_to_package)?;
-
-        // Override package namespace if one is specified
-        if let Some(ref ns) = namespace {
-            package.namespace = Some(ns.clone());
-        }
-
-        if !spm_dir.exists() {
-            std::fs::create_dir_all(&spm_dir)?;
-        }
-
-        // Determine the destination path based on namespace
-        let mut destination: PathBuf = spm_dir;
-        if let Some(ref ns) = package.namespace {
-            // Create namespace directory if it doesn't exist
-            destination = destination.join(ns);
-            if !destination.exists() {
-                std::fs::create_dir_all(&destination)?;
-            }
-        }
-
-        // Add the package directory to the destination
-        destination = destination.join(
-            path_to_package
-                .file_name()
-                .ok_or_else(|| anyhow!("Invalid package path"))?,
-        );
-
-        // Check if this package is forced to overwrite the installed one
-        if destination.exists() && !is_force {
-            return Err(anyhow!(
-                "The package already installed. Use `--force` (-F) flag to force an install or update"
-            ));
-        }
-
-        // Whether to move the package to the installation directory. 
-        // Usually we move the package when it is cloned remotely from a git repository. 
-        if is_move {
-            std::fs::rename(path_to_package, &destination)?;
-        } else {
-            PackageManager::copy_dir_all(path_to_package, &destination)?;
-        }
-
-        // Save the updated package.json with namespace information if specified
-        if namespace.is_some() {
-            let package_json_path = destination.join("package.json");
-            let file = std::fs::File::create(&package_json_path)?;
-            serde_json::to_writer_pretty(file, &package)?;
         }
 
         let setup_script_path: PathBuf = destination.join(package.install.setup_script);
@@ -859,40 +800,6 @@ impl PackageManager {
 
         self.uninstall_package(package_metadata.path_to_package.as_path())
     }
-    
-    /// Completely uninstalls SPM itself, removing all packages, configuration, and cleaning up the PATH.
-    ///
-    /// This method performs the following actions:
-    /// 1. Removes SPM entries from the user's PATH in shell configuration files
-    /// 2. Deletes all installed packages and the SPM directory structure
-    ///
-    /// # Returns
-    ///
-    /// A `Result` indicating success or failure.
-    pub fn uninstall_spm(&self) -> Result<(), Error> {
-        use crate::utilities::cleanup_environment;
-        
-        // First clean up the environment (remove from PATH)
-        cleanup_environment(self)?;
-        
-        // Remove the entire SPM directory
-        if self.root_directory.exists() {
-            display_message(
-                Level::Logging,
-                &format!("Removing SPM directory at {}", self.root_directory.display())
-            );
-            
-            std::fs::remove_dir_all(&self.root_directory)
-                .map_err(|e| anyhow!("Failed to remove SPM directory: {}", e))?;
-                
-            display_message(
-                Level::Logging,
-                "SPM has been completely uninstalled from your system."
-            );
-        }
-        
-        Ok(())
-    }
 }
 
 /// Checks if a given directory contains a `package.json` file, indicating it is a package.
@@ -935,7 +842,7 @@ pub fn is_inside_a_package(path: &Path) -> Result<bool, Error> {
     for item in directory_items {
         let item: DirEntry = item?;
 
-        if item.file_name().to_string_lossy().to_string() == "package.json" {
+        if item.file_name().to_string_lossy().to_string() == DEFAULT_PACKAGE_JSON {
             return Ok(true);
         }
     }
@@ -943,8 +850,8 @@ pub fn is_inside_a_package(path: &Path) -> Result<bool, Error> {
     Ok(false)
 }
 
-/// Normalize a package name. Use this when not sure about whether the package naming is 
-/// going to be absolutely correct. 
+/// Normalize a package name. Use this when not sure about whether the package naming is
+/// going to be absolutely correct.
 pub fn normalize_package_name(name: &str) -> String {
     let standardized_separator: &str = "-";
 
