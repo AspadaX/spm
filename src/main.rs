@@ -3,6 +3,7 @@ mod package;
 mod shell;
 mod utilities;
 mod display_control;
+mod properties;
 
 use std::path::{Path, PathBuf};
 
@@ -11,7 +12,7 @@ use clap::{Parser, crate_version};
 
 use display_control::display_message;
 use package::{Package, PackageManager};
-use utilities::{execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages, is_directory_in_path, cleanup_temp_repository};
+use utilities::{cleanup_temp_repository, execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages};
 
 fn main() {
     // Parse command line arguments
@@ -82,7 +83,7 @@ fn main() {
                 Ok(_) => display_message(display_control::Level::Logging, "Package installation succeeded."),
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
             }
-        }
+        },
         Commands::List(_) => {
             match package_manager.get_installed_packages() {
                 Ok(packages_metadata) => {
@@ -113,7 +114,6 @@ fn main() {
                 Some(namespace) => Package::new_with_namespace(subcommand.name, namespace, subcommand.lib, subcommand.interpreter.into()),
                 None => Package::new(subcommand.name, subcommand.lib, subcommand.interpreter.into()),
             };
-
             match package_manager.create_package(working_directory.as_path(), &package) {
                 Ok(_) => display_message(display_control::Level::Logging, "Package created successfully."),
                 Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
