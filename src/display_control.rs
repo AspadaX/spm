@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use anyhow::{Error, Result};
-use console::{Term, style};
+use console::style;
 use prettytable::{Cell, Row, Table};
 
 #[derive(Debug, Clone, Copy)]
@@ -9,17 +9,7 @@ pub enum Level {
     Logging,
     Error,
     Warn,
-    Selection,
     Input,
-}
-
-pub fn display_command_line(terminal: &Term, message: &str) {
-    let indentation: String = "    ".to_string();
-    for line in message.lines() {
-        terminal
-            .write_line(&format!("{}{}", indentation, style(line).dim()))
-            .unwrap();
-    }
 }
 
 pub fn display_message(level: Level, message: &str) {
@@ -29,7 +19,6 @@ pub fn display_message(level: Level, message: &str) {
         Level::Logging => println!("{}{}", indentation, style(message).green()),
         Level::Error => println!("{}{}", indentation, style(message).red().bold()),
         Level::Warn => println!("{}{}", indentation, style(message).red()),
-        Level::Selection => println!("{}{}", indentation, style(message).blue()),
         Level::Input => print!("{}{} ", indentation, style(message).blue()),
     }
 }
