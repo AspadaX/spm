@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Error, Result, anyhow};
 
+use crate::properties::DEFAULT_LOCAL_PACKAGE_NAMESPACE;
 use crate::{
     display_control::{Level, display_form, display_message, display_tree_message, input_message},
     package::{Package, PackageManager, PackageMetadata, is_inside_a_package},
@@ -410,7 +411,10 @@ pub fn handle_installation_path(
     base_url: &str,
     temporary_path_opt: &mut Option<PathBuf>,
     is_move: &mut bool,
-) -> PathBuf {
+) -> (String, PathBuf) {
+    // This is an url if it is a git repository, or a local path,
+    // if it is a local path.
+    let string_representation: String;
     let package_path: PathBuf;
 
     // Determine whether this is a remote installation, or local
@@ -422,7 +426,7 @@ pub fn handle_installation_path(
                 Level::Error,
                 "Invalid Git repository format. Expected: username/repo",
             );
-            return PathBuf::new();
+            return ("".to_string(), PathBuf::new());
         }
 
         // Fetch the repository to a temporary directory
@@ -430,19 +434,54 @@ pub fn handle_installation_path(
             Ok(result) => {
                 // Store the temporary path for later cleanup
                 *temporary_path_opt = Some(result.clone());
+                string_representation = format!("{}/{}", base_url, path);
                 result
             }
             Err(error) => {
                 display_message(Level::Error, &format!("{}", error.to_string()));
-                return PathBuf::new();
+                return ("".to_string(), PathBuf::new());
             }
         };
 
         // Move the local git repository for installations
         *is_move = true;
     } else {
+        string_representation = path.to_string();
         package_path = Path::new(path).to_path_buf();
     }
 
-    package_path
+    (string_representation, package_path)
+}
+
+// Extract the name and namespace from a repo url, a local path, or a short expression
+// like `some-namespace/some-package`
+pub fn extract_name_and_namespace(text: &str) -> Result<(String, String), Error> {
+    // 1) If it’s a local path, just use the last directory name
+    if Path::new(text).exists() {
+        if let Some(os_name) = Path::new(text).file_name() {
+            let local_name: String = os_name.to_string_lossy().to_string();
+            // Name, Namespace
+            return Ok((local_name, DEFAULT_LOCAL_PACKAGE_NAMESPACE.to_string()));
+        }
+    }
+
+    // 2) Otherwise treat it like a remote URL and do the current logic
+    // Extract repo name from URL (e.g., https://github.com/username/repo-name)
+    let mut parts: Vec<&str> = text.split('/').collect();
+    if parts.len() > 2 {
+        let repo_name: String = parts.last().unwrap_or(&"").to_string();
+        let username: String = parts[parts.len() - 2].to_string();
+        let name: String = repo_name.trim_end_matches(".git").to_string();
+        // Name, Namespace
+        return Ok((name, username));
+    }
+
+    // If the input is `some-namespace/some-package`
+    if parts.len() == 2 {
+        let results: Vec<String> = parts.iter_mut().map(|item| item.to_string()).collect();
+        // Name, Namespace
+        return Ok((results[1].clone(), results[0].clone()));
+    }
+
+    return Err(anyhow!("Wrong input"));
 }

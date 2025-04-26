@@ -12,7 +12,7 @@ use clap::{Parser, crate_version};
 
 use commons::utilities::{
     check_bin_directory_in_path, cleanup_temporary_repository, execute_run_command,
-    handle_installation_path, show_packages,
+    extract_name_and_namespace, handle_installation_path, show_packages,
 };
 use display_control::display_message;
 use package::{Package, PackageManager};
@@ -57,7 +57,8 @@ fn main() {
                 &subcommand.base_url,
                 &mut temporary_path_opt,
                 &mut is_move,
-            );
+            )
+            .1;
 
             // Install the package
             let install_result =
@@ -202,7 +203,7 @@ fn main() {
             // Get a path to a dependency to install afterall.
             let mut is_move: bool = false;
             let mut temporary_path_opt: Option<PathBuf> = None;
-            let dependency_package_path: PathBuf = handle_installation_path(
+            let (url_or_path, dependency_package_path) = handle_installation_path(
                 &subcommand.path,
                 &subcommand.base_url,
                 &mut temporary_path_opt,
@@ -212,7 +213,7 @@ fn main() {
             match package_manager.add_dependency(
                 current_dir,
                 dependency_package_path.as_path(),
-                &subcommand.path,
+                &url_or_path,
                 &subcommand.version,
             ) {
                 Ok(_) => display_message(
@@ -240,7 +241,7 @@ fn main() {
         }
         Commands::Remove(subcommand) => {
             // Check if we're in a package directory (has package.json)
-            let current_dir = Path::new("./");
+            let current_dir: &Path = Path::new("./");
             if !package::is_inside_a_package(current_dir).unwrap_or(false) {
                 display_message(
                     display_control::Level::Error,
@@ -250,17 +251,20 @@ fn main() {
             }
 
             // Get the namespace for display before we move it
-            let dependency_desc = match &subcommand.namespace {
-                Some(ns) => format!("'{}/{}'", ns, subcommand.name),
-                None => format!("'{}'", subcommand.name),
+            let (name, namespace) = match extract_name_and_namespace(&subcommand.name) {
+                Ok((name, namespace)) => (name, namespace),
+                Err(error) => {
+                    display_message(
+                        display_control::Level::Error,
+                        &format!("Error extracting name and namespace: {}", error.to_string()),
+                    );
+                    return;
+                }
             };
+            let dependency_desc: String = format!("'{}/{}'", namespace, name);
 
             // Remove the dependency from the package
-            match package_manager.remove_dependency(
-                current_dir,
-                &subcommand.name,
-                subcommand.namespace,
-            ) {
+            match package_manager.remove_dependency(current_dir, &name, &namespace) {
                 Ok(_) => display_message(
                     display_control::Level::Logging,
                     &format!("Successfully removed dependency {}", dependency_desc),
@@ -281,12 +285,23 @@ fn main() {
                 );
                 return;
             }
+            
+            match extract_name_and_namespace(&subcommand.name) {
+                Ok((_name, _namespace)) => {},
+                Err(error) => {
+                    display_message(
+                        display_control::Level::Error,
+                        &format!("Error extracting name and namespace: {}", error.to_string()),
+                    );
+                    return;
+                }
+            }
 
             // Refresh dependencies
             match package_manager.refresh_dependencies(
                 current_dir,
                 subcommand.name.as_deref(),
-                subcommand.namespace.as_ref(),
+                &subcommand.namespace,
                 subcommand.version.as_deref(),
             ) {
                 Ok(dependencies) => {

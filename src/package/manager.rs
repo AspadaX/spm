@@ -3,7 +3,7 @@ use std::fs::{DirEntry, File};
 use std::path::{Path, PathBuf};
 
 use crate::commons::git::fetch_remote_git_repository_with_version;
-use crate::commons::utilities::copy_dir_all;
+use crate::commons::utilities::{copy_dir_all, extract_name_and_namespace};
 use crate::properties::{
     DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER,
     DEFAULT_SPM_PACKAGES_FOLDER,
@@ -363,7 +363,7 @@ impl PackageManager {
         version: &str,
     ) -> Result<(), Error> {
         // 1. Construct the Dependency object
-        let dependency: Dependency = Dependency::new(url.to_string(), version.to_string());
+        let dependency: Dependency = Dependency::new(url.to_string(), version.to_string())?;
         if dependency.name.is_empty() {
             return Err(anyhow!("Failed to extract valid repository name from URL"));
         }
@@ -378,15 +378,9 @@ impl PackageManager {
         }
 
         // 3. Build the local installation path (namespace + name)
-        let target_path: PathBuf = match &dependency.namespace {
-            Some(namespace) => dependencies_dir.join(namespace).join(&dependency.name),
-            None => {
-                return Err(anyhow!(
-                    "Package {} is missing a namespace",
-                    dependency.get_full_name()
-                ));
-            }
-        };
+        let target_path: PathBuf = dependencies_dir
+            .join(&dependency.namespace)
+            .join(&dependency.name);
 
         // 4. Abort if a folder with the same name already exists
         if target_path.exists() {
@@ -410,7 +404,7 @@ impl PackageManager {
         copy_dir_all(Path::new(dependency_package_path), &target_path)?;
 
         // 6. Add the dependency to the current package’s package.json
-        let mut package = Package::from_file(package_path)?;
+        let mut package: Package = Package::from_file(package_path)?;
         package.dependencies.add(dependency);
 
         // 7. Write the updated package.json to disk
@@ -426,20 +420,26 @@ impl PackageManager {
         &self,
         package_path: &Path,
         name: &str,
-        namespace: Option<String>,
+        namespace: &str,
     ) -> Result<(), Error> {
         // Load the package.json
         let package_json_path: PathBuf = package_path.join(DEFAULT_PACKAGE_JSON);
         let mut package: Package = super::metadata::Package::from_file(package_path)?;
+        // Reconstruct the correct name and namespace
+        for dependency in package.access_dependencies().get_all_mut().iter_mut() {
+            let (name, namespace) = extract_name_and_namespace(&dependency.url)?;
+            dependency.name = name;
+            dependency.namespace = namespace;
+        }
 
         // Check if the dependency exists
         if package
             .dependencies
-            .find_by_name_and_namespace(name, &namespace)
+            .find_by_name_and_namespace(name, namespace)
             .is_none()
         {
             return Err(anyhow!(
-                "Dependency '{}' with namespace '{:?}' not found in {}",
+                "Dependency '{}' with namespace '{}' not found in {}",
                 name,
                 namespace,
                 DEFAULT_PACKAGE_JSON
@@ -453,10 +453,8 @@ impl PackageManager {
             serde_json::to_writer_pretty(file, &package)?;
 
             // Construct dependency directory name
-            let dependency_dir_name: String = match &removed_dep.namespace {
-                Some(ns) => format!("{}-{}", ns, removed_dep.name),
-                None => removed_dep.name,
-            };
+            let dependency_dir_name: String =
+                format!("{}/{}", removed_dep.namespace, removed_dep.name);
 
             // Remove the dependency directory
             let dependency_path = package_path
@@ -480,7 +478,7 @@ impl PackageManager {
         &self,
         package_path: &Path,
         dependency_name: Option<&str>,
-        namespace: Option<&String>,
+        namespace: &str,
         version: Option<&str>,
     ) -> Result<Vec<String>, Error> {
         // 1. Load the package and ensure the "dependencies" folder exists.
@@ -494,15 +492,11 @@ impl PackageManager {
         //    - If dependency_name is Some(...), only refresh that one.
         //    - Otherwise, refresh them all.
         let all_deps_to_refresh: Vec<Dependency> = if let Some(name) = dependency_name {
-            let ns: Option<String> = namespace.cloned();
-            let maybe_dep: Option<&Dependency> = package.dependencies.get_all().iter().find(|d| {
-                d.name == name
-                    && match (&ns, &d.namespace) {
-                        (Some(n1), Some(n2)) => n1 == n2,
-                        (None, None) => true,
-                        _ => false,
-                    }
-            });
+            let maybe_dep: Option<&Dependency> = package
+                .dependencies
+                .get_all()
+                .iter()
+                .find(|d| d.name == name && d.namespace == namespace);
             if maybe_dep.is_none() {
                 return Err(anyhow!("Dependency '{}' not found in package.json", name));
             }
@@ -517,11 +511,8 @@ impl PackageManager {
         // 3. For each dependency, remove any old copy, then clone/copy it again.
         for dep in all_deps_to_refresh {
             // Construct the folder name used under the "dependencies" directory.
-            let dep_dir_name = match &dep.namespace {
-                Some(ns) => format!("{}-{}", ns, dep.name),
-                None => dep.name.clone(),
-            };
-            let dep_path = dependencies_dir.join(&dep_dir_name);
+            let dep_dir_name: String = format!("{}/{}", dep.namespace, dep.name);
+            let dep_path: PathBuf = dependencies_dir.join(&dep_dir_name);
 
             // Remove existing directory to ensure a clean slate before (re)install.
             if dep_path.exists() {
@@ -530,7 +521,7 @@ impl PackageManager {
 
             // Determine what version will be used (either forced or from package.json).
             let new_version: String = version.unwrap_or(&dep.version).to_owned();
-            let updated_dep: Dependency = Dependency::new(dep.url.clone(), new_version);
+            let updated_dep: Dependency = Dependency::new(dep.url.clone(), new_version)?;
 
             // 4. Clone or copy the dependency from either a remote git repo or local path.
             let is_local = Path::new(&updated_dep.url).exists();

@@ -184,10 +184,6 @@ pub struct RemoveDependencyArguments {
     /// Name of the dependency to remove
     #[arg(group = "sources")]
     pub name: String,
-
-    /// Namespace of the dependency (if needed to disambiguate)
-    #[arg(short, long)]
-    pub namespace: Option<String>,
 }
 
 #[derive(Debug, Args)]
