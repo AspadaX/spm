@@ -1,19 +1,66 @@
+use std::fs::DirEntry;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Error, Result, anyhow};
-use auth_git2::GitAuthenticator;
-use git2::{Config, FetchOptions, ProxyOptions, RemoteCallbacks, Repository, build::RepoBuilder};
 
 use crate::{
     display_control::{Level, display_form, display_message, display_tree_message, input_message},
     package::{Package, PackageManager, PackageMetadata, is_inside_a_package},
-    shell::{execute_shell_script_with_context, ExecutionContext},
-    properties::{DEFAULT_SPM_FOLDER, DEFAULT_TEMPORARY_FOLDER}
+    properties::{DEFAULT_SPM_FOLDER, DEFAULT_TEMPORARY_FOLDER},
+    shell::{ExecutionContext, execute_shell_script_with_context},
 };
 
-// Create the temporary directory for cloning remote repositories
+use super::git::{fetch_remote_git_repository, is_git_repository_link};
+
+/// Recursively copies the contents of a directory
+///
+/// # Arguments
+/// * `src` - The source directory to copy from
+/// * `dst` - The destination directory to copy to
+///
+/// # Example
+/// ```
+/// use std::path::Path;
+/// use crate::utilities::copy_dir_all;
+/// copy_dir_all(Path::new("./src"), Path::new("./dst")).unwrap();
+/// ```
+pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), Error> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry: DirEntry = entry?;
+        let entry_path = entry.path();
+        let dest_path = dst.join(entry.file_name());
+        if entry_path.is_dir() {
+            copy_dir_all(&entry_path, &dest_path)?;
+        } else {
+            std::fs::copy(&entry_path, &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Creates (if necessary) and returns the path to the temporary directory used for cloning remote repositories.
+///
+/// This function constructs a path in the user's home directory under the default SPM folder and a "temp" subdirectory.
+/// If the directory does not exist, it will be created. The resulting path is returned as a `PathBuf`.
+///
+/// # Returns
+///
+/// * `Ok(PathBuf)` - The path to the temporary directory.
+/// * `Err(Error)` - If the home directory cannot be determined or the directory cannot be created.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::PathBuf;
+/// use crate::utilities::create_temp_directory;
+///
+/// let temp_dir: PathBuf = create_temp_directory().expect("Failed to create temp directory");
+/// assert!(temp_dir.exists());
+/// ```
+///
 pub fn create_temp_directory() -> Result<PathBuf, Error> {
-    let temp_dir = dirs::home_dir()
+    let temp_dir: PathBuf = dirs::home_dir()
         .ok_or_else(|| anyhow!("Failed to locate home directory"))?
         .join(DEFAULT_SPM_FOLDER)
         .join("temp");
@@ -29,7 +76,12 @@ pub fn create_temp_directory() -> Result<PathBuf, Error> {
 // Clean up the temporary directory for a specific repository
 pub fn cleanup_temp_repository(repo_path: &Path) -> Result<(), Error> {
     if repo_path.exists()
-        && repo_path.starts_with(dirs::home_dir().unwrap().join(DEFAULT_SPM_FOLDER).join(DEFAULT_TEMPORARY_FOLDER))
+        && repo_path.starts_with(
+            dirs::home_dir()
+                .unwrap()
+                .join(DEFAULT_SPM_FOLDER)
+                .join(DEFAULT_TEMPORARY_FOLDER),
+        )
     {
         std::fs::remove_dir_all(repo_path)?;
     }
@@ -47,7 +99,11 @@ pub fn execute_run_command(
     // Case 1: input is a shell script
     if path.is_file() {
         // Execute regular shell script in the current working directory
-        return execute_shell_script_with_context(&expression, args, ExecutionContext::CurrentWorkingDirectory);
+        return execute_shell_script_with_context(
+            &expression,
+            args,
+            ExecutionContext::CurrentWorkingDirectory,
+        );
     }
 
     // Case 2: input is a shell script project/package
@@ -56,7 +112,6 @@ pub fn execute_run_command(
         if is_inside_a_package(path)? {
             let package = Package::from_file(path)?;
             let main_entrypoint_filename: &str = package.access_main_entrypoint();
-            
             // Execute from the current working directory for local package run
             return execute_shell_script_with_context(
                 &path
@@ -64,15 +119,14 @@ pub fn execute_run_command(
                     .canonicalize()
                     .unwrap()
                     .to_string_lossy()
-                    .to_string(),
+                    .into_owned(),
                 args,
-                ExecutionContext::CurrentWorkingDirectory
+                ExecutionContext::CurrentWorkingDirectory,
             );
         }
     }
 
     // Case 3: Check if it's an installed package name first
-    // Try to find exact package name match (ignoring namespace)
     let package_candidates: Vec<PackageMetadata> = package_manager.keyword_search(&expression)?;
 
     if !package_candidates.is_empty() {
@@ -85,9 +139,9 @@ pub fn execute_run_command(
             );
             // Execute from current working directory when using spm run
             return execute_shell_script_with_context(
-                package_metadata.get_main_entry_point(), 
+                package_metadata.get_main_entry_point(),
                 args,
-                ExecutionContext::CurrentWorkingDirectory
+                ExecutionContext::CurrentWorkingDirectory,
             );
         }
 
@@ -115,14 +169,14 @@ pub fn execute_run_command(
 
         // Execute from current working directory when using spm run
         return execute_shell_script_with_context(
-            selected_package.get_main_entry_point(), 
-            args, 
-            ExecutionContext::CurrentWorkingDirectory
+            selected_package.get_main_entry_point(),
+            args,
+            ExecutionContext::CurrentWorkingDirectory,
         );
     }
 
     // If we get here, no packages were found
-    return Err(anyhow!("No packages found with name: {}", expression));
+    Err(anyhow!("No packages found with name: {}", expression))
 }
 
 pub fn show_packages(packages_metadata: &Vec<PackageMetadata>) {
@@ -138,45 +192,6 @@ pub fn show_packages(packages_metadata: &Vec<PackageMetadata>) {
     }
 
     display_form(vec!["Index", "Name", "Description", "Version"], &form_data);
-}
-
-pub fn fetch_remote_git_repository(base_url: &str, repository: &str) -> Result<PathBuf, Error> {
-    let mut clone_url: String = String::new();
-    if !base_url.ends_with("/") {
-        clone_url.push_str(&format!("{}/{}", base_url, repository));
-    } else {
-        clone_url.push_str(&format!("{}{}", base_url, repository));
-    }
-
-    // Initialize git configurations
-    let auth: GitAuthenticator = GitAuthenticator::default();
-    let git_config: Config = Config::open_default()?;
-
-    // Initialize git options
-    let mut fetch_options = FetchOptions::new();
-    let mut proxy_options = ProxyOptions::new();
-    let mut remote_callbacks = RemoteCallbacks::new();
-
-    // Set git up
-    remote_callbacks.credentials(auth.credentials(&git_config));
-    proxy_options.auto();
-    fetch_options.proxy_options(proxy_options);
-    fetch_options.remote_callbacks(remote_callbacks);
-
-    // Create a temp directory for the repository
-    let temp_dir = create_temp_directory()?;
-    let repo_temp_dir = temp_dir.join(repository);
-
-    // Clone into the temporary directory
-    let repository: Repository = RepoBuilder::new()
-        .fetch_options(fetch_options)
-        .clone(&clone_url, &repo_temp_dir)?;
-
-    return Ok(repository.workdir().unwrap().to_path_buf());
-}
-
-pub fn is_git_repository_link(expression: &str) -> bool {
-    !Path::new(expression).exists()
 }
 
 /// Checks if a given directory is in the user's PATH environment variable.
@@ -353,4 +368,81 @@ fn setup_environment_for_user(bin_dir: &Path) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+/// Handles the installation path for a package, determining whether it is a local path or a remote git repository.
+///
+/// This function checks if the provided `path` is a git repository link or a local directory. If it is a git repository,
+/// it fetches the repository to a temporary directory and sets the `is_move` flag to `true`. If it is a local path,
+/// it simply returns the path as a `PathBuf`.
+///
+/// # Arguments
+///
+/// * `path` - The path or repository identifier (e.g., "username/repo" or a local directory path).
+/// * `base_url` - The base URL to use for fetching remote git repositories.
+/// * `temp_path_opt` - A mutable reference to an `Option<PathBuf>` to store the temporary path for later cleanup if needed.
+/// * `is_move` - A mutable reference to a boolean flag indicating whether the package should be moved after installation.
+///
+/// # Returns
+///
+/// Returns a `PathBuf` representing the resolved package path (either local or the path to the cloned repository).
+///
+/// # Examples
+///
+/// ```
+/// // Example 1: Installing from a remote git repository
+/// let mut temp_path: Option<std::path::PathBuf> = None;
+/// let mut is_move = false;
+/// let base_url = "https://github.com";
+/// let repo_path = handle_installation_path("username/repo", base_url, &mut temp_path, &mut is_move);
+/// assert!(repo_path.exists());
+/// assert!(is_move);
+///
+/// // Example 2: Installing from a local directory
+/// let mut temp_path: Option<std::path::PathBuf> = None;
+/// let mut is_move = false;
+/// let local_path = handle_installation_path("./my-local-package", "", &mut temp_path, &mut is_move);
+/// assert_eq!(local_path, std::path::PathBuf::from("./my-local-package"));
+/// assert!(!is_move);
+/// ```
+pub fn handle_installation_path(
+    path: &str,
+    base_url: &str,
+    temp_path_opt: &mut Option<PathBuf>,
+    is_move: &mut bool,
+) -> PathBuf {
+    let package_path: PathBuf;
+
+    // Determine whether this is a remote installation, or local
+    if is_git_repository_link(path) {
+        // Create a subcommand for handling git repository installations
+        let cmd_parts: Vec<&str> = path.split("/").collect();
+        if cmd_parts.len() < 2 {
+            display_message(
+                Level::Error,
+                "Invalid Git repository format. Expected: username/repo",
+            );
+            return PathBuf::new();
+        }
+
+        // Fetch the repository to a temporary directory
+        package_path = match fetch_remote_git_repository(base_url, &path) {
+            Ok(result) => {
+                // Store the temp path for later cleanup
+                *temp_path_opt = Some(result.clone());
+                result
+            }
+            Err(error) => {
+                display_message(Level::Error, &format!("{}", error.to_string()));
+                return PathBuf::new();
+            }
+        };
+
+        // Move the local git repository for installations
+        *is_move = true;
+    } else {
+        package_path = Path::new(path).to_path_buf();
+    }
+
+    package_path
 }

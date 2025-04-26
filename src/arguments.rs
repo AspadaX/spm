@@ -28,11 +28,11 @@ pub struct Arguments {
 pub enum Commands {
     /// Run a shell script
     Run(RunArguments),
-    /// Install a shell script package
+    /// Install a shell script package globally
     Install(InstallArguments),
     /// Show installed shell script packages
     List(ListArguments),
-    /// Uninstall shell script packages
+    /// Uninstall shell script packages globally
     #[clap(short_flag = 'r')]
     Uninstall(UninstallArguments),
     /// Validate the shell script syntax
@@ -44,6 +44,12 @@ pub enum Commands {
     /// Check version info
     #[clap(short_flag = 'v')]
     Version(VersionArguments),
+    /// Add a dependency to the current package
+    Add(AddDependencyArguments),
+    /// Remove a dependency from the current package
+    Remove(RemoveDependencyArguments),
+    /// Refresh or update dependencies in the current package
+    Refresh(RefreshArguments),
 }
 
 #[derive(Debug, Args)]
@@ -69,11 +75,16 @@ pub struct InstallArguments {
     /// Force to install the package, or perform an update. Use `-F` for short.
     #[arg(short = 'F', long, group = "sources", default_value_t = false)]
     pub force: bool,
-    /// Specify a base url if you would like to install a package hosted in 
-    /// a differet git repository other than GitHub. 
+    /// Specify a base url if you would like to install a package hosted in
+    /// a differet git repository other than GitHub.
     /// Use `-u` for short.
-    #[arg(short = 'u', long, group = "sources", default_value = "https://github.com")]
-    pub base_url: String
+    #[arg(
+        short = 'u',
+        long,
+        group = "sources",
+        default_value = "https://github.com"
+    )]
+    pub base_url: String,
 }
 
 #[derive(Debug, Parser)]
@@ -143,3 +154,54 @@ pub struct InitializeArguments {
 #[derive(Debug, Args)]
 #[command(group = clap::ArgGroup::new("sources").required(false).multiple(false))]
 pub struct VersionArguments;
+
+#[derive(Debug, Args)]
+#[command(group = clap::ArgGroup::new("sources").required(true).multiple(true))]
+pub struct AddDependencyArguments {
+    /// Path to your shell script project, or a url to a shell script project git repository
+    #[arg(group = "sources")]
+    pub path: String,
+
+    /// Version (branch, tag, or commit) to use
+    #[arg(short, long, group = "sources", default_value = "main")]
+    pub version: String,
+
+    /// Specify a base url if you would like to install a package hosted in
+    /// a differet git repository other than GitHub.
+    /// Use `-u` for short.
+    #[arg(
+        short = 'u',
+        long,
+        group = "sources",
+        default_value = "https://github.com"
+    )]
+    pub base_url: String,
+}
+
+#[derive(Debug, Args)]
+#[command(group = clap::ArgGroup::new("sources").required(true).multiple(false))]
+pub struct RemoveDependencyArguments {
+    /// Name of the dependency to remove
+    #[arg(group = "sources")]
+    pub name: String,
+
+    /// Namespace of the dependency (if needed to disambiguate)
+    #[arg(short, long)]
+    pub namespace: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(group = clap::ArgGroup::new("sources").required(false).multiple(true))]
+pub struct RefreshArguments {
+    /// Name of a specific dependency to update (if not specified, all dependencies will be updated)
+    #[arg(short, long, group = "sources")]
+    pub name: Option<String>,
+
+    /// Namespace of the dependency (if needed to disambiguate)
+    #[arg(short = 's', long)]
+    pub namespace: Option<String>,
+
+    /// Update to specific version (branch, tag, or commit)
+    #[arg(short, long, group = "sources")]
+    pub version: Option<String>,
+}

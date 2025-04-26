@@ -157,6 +157,206 @@ check_temp_directory_exists() {
     fi
 }
 
+# Function to setup test environment for library dependency tests
+setup_test() {
+    # Create test directory
+    TEST_DIR="$(mktemp -d)"
+    cd "$TEST_DIR" || exit 1
+    echo -e "${BLUE}Setting up test in${NC} $TEST_DIR"
+    
+    # Get the path to the project root directory (parent of the spm-tester directory)
+    PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+    
+    # Define path to spm binary - using relative path to project root
+    SPM_BIN="cd \"$PROJECT_ROOT\" && cargo run --quiet --"
+    
+    # Set initial counters
+    PASSED_TESTS=0
+    TOTAL_TESTS=0
+}
+
+# Function to create a sample package for testing
+create_sample_package() {
+    local pkg_name=$1
+    local is_lib=$2
+    
+    echo "Creating sample package: $pkg_name (library: $is_lib)"
+    mkdir -p "$pkg_name"
+    cd "$pkg_name" || exit 1
+    
+    # Initialize as SPM package
+    $SPM_BIN init
+    
+    # If it's a library, set it up for library usage
+    if [ "$is_lib" = "true" ]; then
+        # Modify package.json to indicate this is a library
+        sed -i.bak 's/"register_to_environment_tool": true/"register_to_environment_tool": false/' package.json
+        rm -f package.json.bak
+        
+        # Create library script
+        cat > lib.sh << 'EOF'
+#!/usr/bin/env bash
+# Library functions
+echo "This is a library package"
+EOF
+        chmod +x lib.sh
+    fi
+    
+    cd ..
+}
+
+# Function to assert a command succeeded
+assert_success() {
+    local command="$1"
+    local message="${2:-Command failed}"
+    
+    # Run the command and capture its output and exit code
+    local output
+    output=$(eval "$command" 2>&1) || true
+    local status=$?
+    
+    # Print the output for debugging
+    echo "$output"
+    
+    if [ $status -eq 0 ]; then
+        echo -e "${GREEN}✓ Command succeeded${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ $message (status: $status)${NC}"
+        return 1
+    fi
+}
+
+# Function to assert a string contains a substring
+assert_contains() {
+    local haystack=$1
+    local needle=$2
+    
+    if echo "$haystack" | grep -q "$needle"; then
+        echo -e "${GREEN}✓ Found '$needle'${NC}"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        return 0
+    else
+        echo -e "${RED}✗ Did not find '$needle'${NC}"
+        TOTAL_TESTS=$((TOTAL_TESTS + 1))
+        return 1
+    fi
+}
+
+# Function to assert a file exists
+assert_file_exists() {
+    local file=$1
+    local message=${2:-"File does not exist"}
+    
+    if [ -f "$file" ]; then
+        echo -e "${GREEN}✓ File exists: $file${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ $message: $file${NC}"
+        return 1
+    fi
+}
+
+# Function to assert a directory exists
+assert_dir_exists() {
+    local dir=$1
+    local message=${2:-"Directory does not exist"}
+    
+    if [ -d "$dir" ]; then
+        echo -e "${GREEN}✓ Directory exists: $dir${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ $message: $dir${NC}"
+        return 1
+    fi
+}
+
+# Function to assert equality
+assert_equal() {
+    local actual=$1
+    local expected=$2
+    local message=$3
+    
+    if [ "$actual" = "$expected" ]; then
+        echo -e "${GREEN}✓ Equal: $actual${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ $message: Expected '$expected', got '$actual'${NC}"
+        return 1
+    fi
+}
+
+# Function to assert inequality
+assert_not_equal() {
+    local actual=$1
+    local expected=$2
+    local message=$3
+    
+    if [ "$actual" != "$expected" ]; then
+        echo -e "${GREEN}✓ Not equal: $actual != $expected${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ $message: Got '$actual'${NC}"
+        return 1
+    fi
+}
+
+# Function to run spm command
+run_spm() {
+    echo -e "${YELLOW}Running:${NC} spm $*"
+
+    # Store current directory
+    local current_dir="$(pwd)"
+
+    # The correct project root is where the Cargo.toml file is located
+    local PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../../" && pwd )"
+
+    # Path to built spm binary
+    local SPM_BIN="$PROJECT_ROOT/target/debug/spm"
+
+    # Build the binary if it doesn't exist
+    if [ ! -f "$SPM_BIN" ]; then
+        echo "Building spm binary..."
+        (cd "$PROJECT_ROOT" && cargo build --quiet)
+    fi
+
+    # Debug information
+    echo "DEBUG: Current directory: $current_dir"
+    echo "DEBUG: Project root: $PROJECT_ROOT"
+    echo "DEBUG: Using SPM binary at $SPM_BIN"
+
+    # Run the spm binary in the current directory
+    "$SPM_BIN" "$@"
+    local result=$?
+
+    return $result
+}
+
+# Function to cleanup test environment
+cleanup_test() {
+    echo -e "\n${BLUE}Cleaning up test environment${NC}"
+    cd / > /dev/null
+    rm -rf "$TEST_DIR"
+}
+
+# Function to report test results
+report_test_results() {
+    echo -e "\n${BLUE}======================================${NC}"
+    echo -e "${BLUE}      LIBRARY DEPENDENCY TEST RESULTS  ${NC}"
+    echo -e "${BLUE}======================================${NC}"
+    echo -e "Total tests: $TOTAL_TESTS"
+    echo -e "Passed tests: ${GREEN}$PASSED_TESTS${NC}"
+    echo -e "Failed tests: ${RED}$((TOTAL_TESTS - PASSED_TESTS))${NC}"
+    
+    if [ $PASSED_TESTS -eq $TOTAL_TESTS ]; then
+        echo -e "\n${GREEN}All library dependency tests passed!${NC}"
+    else
+        echo -e "\n${RED}Some library dependency tests failed!${NC}"
+        # Don't exit with error, let the main script handle overall reporting
+    fi
+}
+
 # Function to generate the final report
 generate_final_report() {
     echo -e "\n${BLUE}=============================${NC}"

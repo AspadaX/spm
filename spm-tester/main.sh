@@ -17,8 +17,10 @@ TEST_GITHUB_REPO="AspadaX/quick-git"  # Test repository with actual shell script
 
 # Get the directory of this script to establish the base path
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+echo "DEBUG: Script directory is $SCRIPT_DIR"
 
 # Source the utility module
+echo "DEBUG: Sourcing test_utils.sh from $SCRIPT_DIR/src/utils/test_utils.sh"
 source "$SCRIPT_DIR/src/utils/test_utils.sh"
 
 # Source all test modules
@@ -30,6 +32,9 @@ source "$SCRIPT_DIR/src/tests/github_repository.sh"
 source "$SCRIPT_DIR/src/tests/check_command.sh"
 source "$SCRIPT_DIR/src/tests/error_handling.sh"
 source "$SCRIPT_DIR/src/tests/execution_path.sh"
+source "$SCRIPT_DIR/src/tests/dependency_management.sh"
+source "$SCRIPT_DIR/src/tests/library_dependency.sh"
+source "$SCRIPT_DIR/src/tests/github_library_test.sh"
 
 # -- Main Function --
 main() {
@@ -57,6 +62,9 @@ main() {
     run_check_command_tests
     run_error_handling_tests
     run_execution_path_tests
+    run_dependency_management_tests
+    run_library_dependency_tests
+    run_github_library_tests
 
     # Clean up
     cd ../..

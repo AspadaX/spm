@@ -1,18 +1,21 @@
 mod arguments;
-mod package;
-mod shell;
-mod utilities;
+mod commons;
 mod display_control;
+mod package;
 mod properties;
+mod shell;
 
 use std::path::{Path, PathBuf};
 
 use arguments::{Arguments, Commands};
 use clap::{Parser, crate_version};
 
+use commons::utilities::{
+    check_bin_directory_in_path, cleanup_temp_repository, execute_run_command,
+    handle_installation_path, show_packages,
+};
 use display_control::display_message;
 use package::{Package, PackageManager};
-use utilities::{cleanup_temp_repository, execute_run_command, fetch_remote_git_repository, is_git_repository_link, show_packages};
 
 fn main() {
     // Parse command line arguments
@@ -21,102 +24,130 @@ fn main() {
     let package_manager: PackageManager = match PackageManager::new() {
         Ok(result) => result,
         Err(error) => {
-            display_message(display_control::Level::Error, &format!("{}", error.to_string()));
+            display_message(
+                display_control::Level::Error,
+                &format!("{}", error.to_string()),
+            );
             return;
         }
     };
 
     // Check if the binary directory is in the user's PATH
-    utilities::check_bin_directory_in_path(&package_manager);
-    
+    check_bin_directory_in_path(&package_manager);
+
     // Map the arguments to corresponding code logics
     match arguments.commands {
-        Commands::Run(subcommand) => match execute_run_command(&package_manager, subcommand.expression, &subcommand.args) {
-            Ok(_) => {}
-            Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
-        },
+        Commands::Run(subcommand) => {
+            match execute_run_command(&package_manager, subcommand.expression, &subcommand.args) {
+                Ok(_) => {}
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("{}", error.to_string()),
+                ),
+            }
+        }
         Commands::Install(subcommand) => {
             let package_path: PathBuf;
             let mut is_move: bool = false;
             let mut temp_path_opt: Option<PathBuf> = None;
-            
+
             // Determine whether this is a remote installation, or local
-            if is_git_repository_link(&subcommand.path) {
-                // Create a subcommand for handling git repository installations
-                let cmd_parts: Vec<&str> = subcommand.path.split("/").collect();
-                if cmd_parts.len() < 2 {
-                    display_message(display_control::Level::Error, "Invalid Git repository format. Expected: username/repo");
-                    return;
-                }
-                
-                // Fetch the repository to a temporary directory
-                package_path = match fetch_remote_git_repository(&subcommand.base_url, &subcommand.path) {
-                    Ok(result) => {
-                        // Store the temp path for later cleanup
-                        temp_path_opt = Some(result.clone());
-                        result
-                    },
-                    Err(error) => {
-                        display_message(display_control::Level::Error, &format!("{}", error.to_string()));
-                        return;
-                    },
-                };
-                
-                // Move the local git repository for installations
-                is_move = true;
-            } else {
-                package_path = Path::new(&subcommand.path).to_path_buf();
-            }
-            
+            package_path = handle_installation_path(
+                &subcommand.path,
+                &subcommand.base_url,
+                &mut temp_path_opt,
+                &mut is_move,
+            );
+
             // Install the package
-            let install_result = package_manager.install_package(&package_path, is_move, subcommand.force);
-            
+            let install_result =
+                package_manager.install_package(&package_path, is_move, subcommand.force);
+
             // Clean up the temporary directory if used
             if let Some(temp_path) = temp_path_opt {
                 if let Err(cleanup_err) = cleanup_temp_repository(&temp_path) {
-                    display_message(display_control::Level::Warn, &format!("Failed to clean up temporary directory: {}", cleanup_err));
+                    display_message(
+                        display_control::Level::Warn,
+                        &format!("Failed to clean up temporary directory: {}", cleanup_err),
+                    );
                 }
             }
-            
+
             // Handle installation result
             match install_result {
-                Ok(_) => display_message(display_control::Level::Logging, "Package installation succeeded."),
-                Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
+                Ok(_) => display_message(
+                    display_control::Level::Logging,
+                    "Package installation succeeded.",
+                ),
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("{}", error.to_string()),
+                ),
             }
-        },
+        }
         Commands::List(_) => {
             match package_manager.get_installed_packages() {
                 Ok(packages_metadata) => {
                     show_packages(&packages_metadata);
-                },
+                }
                 Err(error) => {
-                    display_message(display_control::Level::Error, &format!("Error retrieving installed packages: {}", error.to_string()));
+                    display_message(
+                        display_control::Level::Error,
+                        &format!("Error retrieving installed packages: {}", error.to_string()),
+                    );
                 }
             };
         }
         Commands::Uninstall(subcommand) => {
             match package_manager.uninstall_package_by_name(subcommand.expression) {
-                Ok(_) => display_message(display_control::Level::Logging, "Package uninstalled successfully."),
-                Err(error) => display_message(display_control::Level::Error, &format!("Error uninstalling package: {}", error.to_string())),
+                Ok(_) => display_message(
+                    display_control::Level::Logging,
+                    "Package uninstalled successfully.",
+                ),
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("Error uninstalling package: {}", error.to_string()),
+                ),
             }
         }
         Commands::Check(_) => {
-            display_message(display_control::Level::Logging, "The 'Check' feature is still under development.");
+            display_message(
+                display_control::Level::Logging,
+                "The 'Check' feature is still under development.",
+            );
         }
         Commands::New(subcommand) => {
             let working_directory: PathBuf = Path::new("./").join(&subcommand.name);
             match std::fs::create_dir(&working_directory) {
                 Ok(_) => {}
-                Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("{}", error.to_string()),
+                ),
             };
 
             let package = match subcommand.namespace {
-                Some(namespace) => Package::new_with_namespace(subcommand.name, namespace, subcommand.lib, subcommand.interpreter.into()),
-                None => Package::new(subcommand.name, subcommand.lib, subcommand.interpreter.into()),
+                Some(namespace) => Package::new_with_namespace(
+                    subcommand.name,
+                    namespace,
+                    subcommand.lib,
+                    subcommand.interpreter.into(),
+                ),
+                None => Package::new(
+                    subcommand.name,
+                    subcommand.lib,
+                    subcommand.interpreter.into(),
+                ),
             };
             match package_manager.create_package(working_directory.as_path(), &package) {
-                Ok(_) => display_message(display_control::Level::Logging, "Package created successfully."),
-                Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
+                Ok(_) => display_message(
+                    display_control::Level::Logging,
+                    "Package created successfully.",
+                ),
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("{}", error.to_string()),
+                ),
             };
         }
         Commands::Init(subcommand) => {
@@ -128,19 +159,160 @@ fn main() {
                 .unwrap()
                 .to_string_lossy()
                 .to_string();
-                
+
             let package = match subcommand.namespace {
-                Some(namespace) => Package::new_with_namespace(folder_name, namespace, subcommand.lib, subcommand.interpreter.into()),
+                Some(namespace) => Package::new_with_namespace(
+                    folder_name,
+                    namespace,
+                    subcommand.lib,
+                    subcommand.interpreter.into(),
+                ),
                 None => Package::new(folder_name, subcommand.lib, subcommand.interpreter.into()),
             };
 
             match package_manager.create_package(working_directory, &package) {
-                Ok(_) => display_message(display_control::Level::Logging, "Package created successfully."),
-                Err(error) => display_message(display_control::Level::Error, &format!("{}", error.to_string())),
+                Ok(_) => display_message(
+                    display_control::Level::Logging,
+                    "Package created successfully.",
+                ),
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("{}", error.to_string()),
+                ),
             };
         }
         Commands::Version(_) => {
-            display_message(display_control::Level::Logging, &format!("Shell Package Manager (spm) version: {}", crate_version!()));
+            display_message(
+                display_control::Level::Logging,
+                &format!("Shell Package Manager (spm) version: {}", crate_version!()),
+            );
+        }
+        Commands::Add(subcommand) => {
+            // Check if we're in a package directory (has package.json)
+            let current_dir = Path::new("./");
+            if !package::is_inside_a_package(current_dir).unwrap_or(false) {
+                display_message(
+                    display_control::Level::Error,
+                    "Not inside a package directory. Please run this command from a valid SPM package directory.",
+                );
+                return;
+            }
+
+            // Handle if the package is a remote repository.
+            // Get a path to a dependency to install afterall.
+            let mut is_move: bool = false;
+            let mut temp_path_opt: Option<PathBuf> = None;
+            let dependency_package_path: PathBuf = handle_installation_path(
+                &subcommand.path,
+                &subcommand.base_url,
+                &mut temp_path_opt,
+                &mut is_move,
+            );
+
+            match package_manager.add_dependency(
+                current_dir,
+                dependency_package_path.as_path(),
+                &subcommand.path,
+                &subcommand.version,
+            ) {
+                Ok(_) => display_message(
+                    display_control::Level::Logging,
+                    &format!(
+                        "Successfully added dependency from {}",
+                        dependency_package_path.display()
+                    ),
+                ),
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("Error adding dependency: {}", error.to_string()),
+                ),
+            }
+
+            // Clean up the temporary directory if used
+            if let Some(temp_path) = temp_path_opt {
+                if let Err(cleanup_err) = cleanup_temp_repository(&temp_path) {
+                    display_message(
+                        display_control::Level::Warn,
+                        &format!("Failed to clean up temporary directory: {}", cleanup_err),
+                    );
+                }
+            }
+        }
+        Commands::Remove(subcommand) => {
+            // Check if we're in a package directory (has package.json)
+            let current_dir = Path::new("./");
+            if !package::is_inside_a_package(current_dir).unwrap_or(false) {
+                display_message(
+                    display_control::Level::Error,
+                    "Not inside a package directory. Please run this command from a valid SPM package directory.",
+                );
+                return;
+            }
+
+            // Get the namespace for display before we move it
+            let dependency_desc = match &subcommand.namespace {
+                Some(ns) => format!("'{}/{}'", ns, subcommand.name),
+                None => format!("'{}'", subcommand.name),
+            };
+
+            // Remove the dependency from the package
+            match package_manager.remove_dependency(
+                current_dir,
+                &subcommand.name,
+                subcommand.namespace,
+            ) {
+                Ok(_) => display_message(
+                    display_control::Level::Logging,
+                    &format!("Successfully removed dependency {}", dependency_desc),
+                ),
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("Error removing dependency: {}", error.to_string()),
+                ),
+            }
+        }
+        Commands::Refresh(subcommand) => {
+            // Check if we're in a package directory (has package.json)
+            let current_dir = Path::new("./");
+            if !package::is_inside_a_package(current_dir).unwrap_or(false) {
+                display_message(
+                    display_control::Level::Error,
+                    "Not inside a package directory. Please run this command from a valid SPM package directory.",
+                );
+                return;
+            }
+
+            // Refresh dependencies
+            match package_manager.refresh_dependencies(
+                current_dir,
+                subcommand.name.as_deref(),
+                subcommand.namespace.as_ref(),
+                subcommand.version.as_deref(),
+            ) {
+                Ok(dependencies) => {
+                    if dependencies.is_empty() {
+                        display_message(
+                            display_control::Level::Logging,
+                            "No dependencies to refresh.",
+                        );
+                    } else {
+                        let dep_message = if dependencies.len() == 1 {
+                            format!("Successfully refreshed dependency: {}", dependencies[0])
+                        } else {
+                            format!(
+                                "Successfully refreshed {} dependencies: {}",
+                                dependencies.len(),
+                                dependencies.join(", ")
+                            )
+                        };
+                        display_message(display_control::Level::Logging, &dep_message);
+                    }
+                }
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("Error refreshing dependencies: {}", error.to_string()),
+                ),
+            }
         }
     }
 
