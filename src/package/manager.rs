@@ -371,21 +371,28 @@ impl PackageManager {
         // 2. Create the dependencies folder if necessary
         let dependencies_dir: PathBuf = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
         if !dependencies_dir.exists() {
-            std::fs::create_dir_all(&dependencies_dir)?;
+            return Err(anyhow!(
+                "`{}` does not exist in the project root. Please ensure the project is intact",
+                DEFAULT_DEPENDENCIES_FOLDER
+            ));
         }
 
         // 3. Build the local installation path (namespace + name)
-        let dependency_dir_name: String = match &dependency.namespace {
-            Some(ns) => format!("{}-{}", ns, dependency.name),
-            None => dependency.name.clone(),
+        let target_path: PathBuf = match &dependency.namespace {
+            Some(namespace) => dependencies_dir.join(namespace).join(&dependency.name),
+            None => {
+                return Err(anyhow!(
+                    "Package {} is missing a namespace",
+                    dependency.get_full_name()
+                ));
+            }
         };
-        let dependency_path: PathBuf = dependencies_dir.join(&dependency_dir_name);
 
         // 4. Abort if a folder with the same name already exists
-        if dependency_path.exists() {
+        if target_path.exists() {
             return Err(anyhow!(
                 "Dependency '{}' is already installed. Consider updating instead.",
-                dependency_dir_name
+                dependency.get_full_name()
             ));
         }
 
@@ -400,7 +407,7 @@ impl PackageManager {
 
         // Use the actual path of where the dependency package is located at.
         // We are currently downloading the package to a local place if it is a remote repo.
-        copy_dir_all(Path::new(dependency_package_path), &dependency_path)?;
+        copy_dir_all(Path::new(dependency_package_path), &target_path)?;
 
         // 6. Add the dependency to the current package’s package.json
         let mut package = Package::from_file(package_path)?;

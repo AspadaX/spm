@@ -4,7 +4,7 @@ use anyhow::{Error, Result, anyhow};
 use auth_git2::GitAuthenticator;
 use git2::{Config, FetchOptions, ProxyOptions, RemoteCallbacks, Repository, build::RepoBuilder};
 
-use super::utilities::create_temp_directory;
+use super::utilities::create_temporary_directory;
 
 fn build_git_config<'a>(
     authenticator: &'a GitAuthenticator,
@@ -41,7 +41,7 @@ pub fn fetch_remote_git_repository(base_url: &str, repository: &str) -> Result<P
     build_git_config(&auth, &git_config, &mut fetch_options)?;
 
     // Create a temp directory for the repository
-    let temp_dir: PathBuf = create_temp_directory()?;
+    let temp_dir: PathBuf = create_temporary_directory()?;
     let repo_temp_dir: PathBuf = temp_dir.join(repository);
 
     // Clone into the temporary directory
@@ -73,7 +73,7 @@ pub fn fetch_remote_git_repository_with_version(
         dest.to_path_buf()
     } else {
         // Create a temp directory for the repository
-        let temp_dir = create_temp_directory()?;
+        let temp_dir = create_temporary_directory()?;
 
         // Extract repo name from URL
         let repo_name = extract_repo_name_from_url(repository_url);

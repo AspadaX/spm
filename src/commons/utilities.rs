@@ -59,22 +59,22 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), Error> {
 /// assert!(temp_dir.exists());
 /// ```
 ///
-pub fn create_temp_directory() -> Result<PathBuf, Error> {
-    let temp_dir: PathBuf = dirs::home_dir()
+pub fn create_temporary_directory() -> Result<PathBuf, Error> {
+    let temporary_dir: PathBuf = dirs::home_dir()
         .ok_or_else(|| anyhow!("Failed to locate home directory"))?
         .join(DEFAULT_SPM_FOLDER)
-        .join("temp");
+        .join(DEFAULT_TEMPORARY_FOLDER);
 
-    // Create the temp directory if it doesn't exist
-    if !temp_dir.exists() {
-        std::fs::create_dir_all(&temp_dir)?;
+    // Create the temporary directory if it doesn't exist
+    if !temporary_dir.exists() {
+        std::fs::create_dir_all(&temporary_dir)?;
     }
 
-    Ok(temp_dir)
+    Ok(temporary_dir)
 }
 
 // Clean up the temporary directory for a specific repository
-pub fn cleanup_temp_repository(repo_path: &Path) -> Result<(), Error> {
+pub fn cleanup_temporary_repository(repo_path: &Path) -> Result<(), Error> {
     if repo_path.exists()
         && repo_path.starts_with(
             dirs::home_dir()
@@ -408,7 +408,7 @@ fn setup_environment_for_user(bin_dir: &Path) -> Result<(), Error> {
 pub fn handle_installation_path(
     path: &str,
     base_url: &str,
-    temp_path_opt: &mut Option<PathBuf>,
+    temporary_path_opt: &mut Option<PathBuf>,
     is_move: &mut bool,
 ) -> PathBuf {
     let package_path: PathBuf;
@@ -428,8 +428,8 @@ pub fn handle_installation_path(
         // Fetch the repository to a temporary directory
         package_path = match fetch_remote_git_repository(base_url, &path) {
             Ok(result) => {
-                // Store the temp path for later cleanup
-                *temp_path_opt = Some(result.clone());
+                // Store the temporary path for later cleanup
+                *temporary_path_opt = Some(result.clone());
                 result
             }
             Err(error) => {

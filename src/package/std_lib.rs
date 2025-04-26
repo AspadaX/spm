@@ -58,8 +58,8 @@ mod tests {
     #[test]
     fn test_create_std_library() {
         // Create a temporary directory for testing
-        let temp_dir = tempdir().unwrap();
-        let package_path = temp_dir.path();
+        let temporary_dir = tempdir().unwrap();
+        let package_path = temporary_dir.path();
 
         // Create src directory since it's expected by create_std_library
         fs::create_dir(package_path.join(DEFAULT_SRC_FOLDER)).unwrap();

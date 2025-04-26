@@ -11,7 +11,7 @@ use arguments::{Arguments, Commands};
 use clap::{Parser, crate_version};
 
 use commons::utilities::{
-    check_bin_directory_in_path, cleanup_temp_repository, execute_run_command,
+    check_bin_directory_in_path, cleanup_temporary_repository, execute_run_command,
     handle_installation_path, show_packages,
 };
 use display_control::display_message;
@@ -49,13 +49,13 @@ fn main() {
         Commands::Install(subcommand) => {
             let package_path: PathBuf;
             let mut is_move: bool = false;
-            let mut temp_path_opt: Option<PathBuf> = None;
+            let mut temporary_path_opt: Option<PathBuf> = None;
 
             // Determine whether this is a remote installation, or local
             package_path = handle_installation_path(
                 &subcommand.path,
                 &subcommand.base_url,
-                &mut temp_path_opt,
+                &mut temporary_path_opt,
                 &mut is_move,
             );
 
@@ -64,8 +64,8 @@ fn main() {
                 package_manager.install_package(&package_path, is_move, subcommand.force);
 
             // Clean up the temporary directory if used
-            if let Some(temp_path) = temp_path_opt {
-                if let Err(cleanup_err) = cleanup_temp_repository(&temp_path) {
+            if let Some(temporary_path) = temporary_path_opt {
+                if let Err(cleanup_err) = cleanup_temporary_repository(&temporary_path) {
                     display_message(
                         display_control::Level::Warn,
                         &format!("Failed to clean up temporary directory: {}", cleanup_err),
@@ -189,7 +189,7 @@ fn main() {
         }
         Commands::Add(subcommand) => {
             // Check if we're in a package directory (has package.json)
-            let current_dir = Path::new("./");
+            let current_dir: &Path = Path::new("./");
             if !package::is_inside_a_package(current_dir).unwrap_or(false) {
                 display_message(
                     display_control::Level::Error,
@@ -201,11 +201,11 @@ fn main() {
             // Handle if the package is a remote repository.
             // Get a path to a dependency to install afterall.
             let mut is_move: bool = false;
-            let mut temp_path_opt: Option<PathBuf> = None;
+            let mut temporary_path_opt: Option<PathBuf> = None;
             let dependency_package_path: PathBuf = handle_installation_path(
                 &subcommand.path,
                 &subcommand.base_url,
-                &mut temp_path_opt,
+                &mut temporary_path_opt,
                 &mut is_move,
             );
 
@@ -229,8 +229,8 @@ fn main() {
             }
 
             // Clean up the temporary directory if used
-            if let Some(temp_path) = temp_path_opt {
-                if let Err(cleanup_err) = cleanup_temp_repository(&temp_path) {
+            if let Some(temporary_path) = temporary_path_opt {
+                if let Err(cleanup_err) = cleanup_temporary_repository(&temporary_path) {
                     display_message(
                         display_control::Level::Warn,
                         &format!("Failed to clean up temporary directory: {}", cleanup_err),
