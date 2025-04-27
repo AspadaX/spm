@@ -453,8 +453,8 @@ pub fn handle_installation_path(
     (string_representation, package_path)
 }
 
-// Extract the name and namespace from a repo url, a local path, or a short expression
-// like `some-namespace/some-package`
+/// Extract the name and namespace from a repo url, a local path, or a short expression
+/// like `some-namespace/some-package`
 pub fn extract_name_and_namespace(text: &str) -> Result<(String, String), Error> {
     // 1) If it’s a local path, just use the last directory name
     if Path::new(text).exists() {

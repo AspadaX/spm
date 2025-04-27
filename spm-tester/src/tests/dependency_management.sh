@@ -28,11 +28,11 @@ run_dependency_management_tests() {
     assert_contains "$(cat package.json)" "local-lib"
 
     # 3. Add a remote (GitHub) dependency (should succeed)
-    run_spm add "https://github.com/AspadaX/test-spm-library" --version main
+    run_spm add "AspadaX/test-spm-library" --version main
     assert_contains "$(cat package.json)" "test-spm-library"
 
     # 3b. Add a remote (GitHub) non-library dependency (should fail)
-    if run_spm add "https://github.com/AspadaX/quick-git" --version main; then
+    if run_spm add "AspadaX/quick-git" --version main; then
         echo -e "${GREEN}✓ quick-git (non-library) add succeeded as expected${NC}"
     else
         echo -e "${RED}✗ quick-git (non-library) should have been added successfully${NC}"
@@ -40,8 +40,8 @@ run_dependency_management_tests() {
 
     # 4. Refresh dependencies (should fetch both)
     run_spm refresh
-    assert_dir_exists "dependencies/local-lib" "Local dependency not installed"
-    assert_dir_exists "dependencies/test-spm-library" "GitHub dependency not installed"
+    assert_dir_exists "local/local-lib" "Local dependency not installed"
+    assert_dir_exists "AspadaX/test-spm-library" "GitHub dependency not installed"
 
     # 5. Remove a dependency and verify
     run_spm remove local-lib
@@ -51,8 +51,8 @@ run_dependency_management_tests() {
     run_spm remove does-not-exist && echo -e "${RED}✗ Removing non-existent dependency should fail${NC}" || echo -e "${GREEN}✓ Removing non-existent dependency failed as expected${NC}"
 
     # 7. Add the same dependency twice (should not duplicate)
-    run_spm add "https://github.com/AspadaX/test-spm-library" --version main
-    run_spm add "https://github.com/AspadaX/test-spm-library" --version main
+    run_spm add "AspadaX/test-spm-library" --version main
+    run_spm add "AspadaX/test-spm-library" --version main
     count=$(grep -o 'test-spm-library' package.json | wc -l)
     if [ "$count" -le 2 ]; then
         echo -e "${GREEN}✓ No duplicate test-spm-library entries${NC}"

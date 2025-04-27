@@ -286,48 +286,51 @@ fn main() {
                 return;
             }
             
-            match extract_name_and_namespace(&subcommand.name) {
-                Ok((_name, _namespace)) => {},
-                Err(error) => {
-                    display_message(
-                        display_control::Level::Error,
-                        &format!("Error extracting name and namespace: {}", error.to_string()),
-                    );
-                    return;
+            if let Some(name) = subcommand.name {
+                match extract_name_and_namespace(&name) {
+                    Ok((name, namespace)) => {
+                        // Refresh dependencies
+                        match package_manager.refresh_dependencies(
+                            current_dir,
+                            Some(&name),
+                            &namespace,
+                            subcommand.version.as_deref(),
+                        ) {
+                            Ok(dependencies) => {
+                                if dependencies.is_empty() {
+                                    display_message(
+                                        display_control::Level::Logging,
+                                        "No dependencies to refresh.",
+                                    );
+                                } else {
+                                    let dep_message = if dependencies.len() == 1 {
+                                        format!("Successfully refreshed dependency: {}", dependencies[0])
+                                    } else {
+                                        format!(
+                                            "Successfully refreshed {} dependencies: {}",
+                                            dependencies.len(),
+                                            dependencies.join(", ")
+                                        )
+                                    };
+                                    display_message(display_control::Level::Logging, &dep_message);
+                                }
+                            }
+                            Err(error) => display_message(
+                                display_control::Level::Error,
+                                &format!("Error refreshing dependencies: {}", error.to_string()),
+                            ),
+                        }
+                    },
+                    Err(error) => {
+                        display_message(
+                            display_control::Level::Error,
+                            &format!("Error extracting name and namespace: {}", error.to_string()),
+                        );
+                        return;
+                    }
                 }
             }
 
-            // Refresh dependencies
-            match package_manager.refresh_dependencies(
-                current_dir,
-                subcommand.name.as_deref(),
-                &subcommand.namespace,
-                subcommand.version.as_deref(),
-            ) {
-                Ok(dependencies) => {
-                    if dependencies.is_empty() {
-                        display_message(
-                            display_control::Level::Logging,
-                            "No dependencies to refresh.",
-                        );
-                    } else {
-                        let dep_message = if dependencies.len() == 1 {
-                            format!("Successfully refreshed dependency: {}", dependencies[0])
-                        } else {
-                            format!(
-                                "Successfully refreshed {} dependencies: {}",
-                                dependencies.len(),
-                                dependencies.join(", ")
-                            )
-                        };
-                        display_message(display_control::Level::Logging, &dep_message);
-                    }
-                }
-                Err(error) => display_message(
-                    display_control::Level::Error,
-                    &format!("Error refreshing dependencies: {}", error.to_string()),
-                ),
-            }
         }
     }
 
