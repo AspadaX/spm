@@ -487,9 +487,40 @@ pub fn extract_name_and_namespace(text: &str) -> Result<(String, String), Error>
     return Err(anyhow!("Wrong input"));
 }
 
-/// Construct the folder name used under the "dependencies" directory. 
-/// Return error when a dependency folder does not exist in the package,
-/// or if the given dependency package path does not eixst.
+/// Constructs the path to a specific dependency within a package's dependencies folder.
+///
+/// This function takes the path to a package, a namespace, and a dependency name, and constructs the path
+/// to that dependency within the package's `DEFAULT_DEPENDENCIES_FOLDER`. It checks if the root dependencies
+/// directory and the specific dependency directory exist.
+///
+/// # Arguments
+///
+/// * `package_path` - The path to the package.
+/// * `namespace` - The namespace of the dependency.
+/// * `name` - The name of the dependency.
+///
+/// # Returns
+///
+/// * `Ok(PathBuf)` - The path to the dependency.
+/// * `Err(Error)` - If the root dependencies directory or the specific dependency directory does not exist.
+///
+/// # Example
+///
+/// ```
+/// use std::path::Path;
+/// use crate::utilities::construct_dependency_path;
+///
+/// // Assuming you have a package at "./my-package" with a dependency "some-namespace/some-dependency"
+/// let package_path = Path::new("./my-package");
+/// // Create dummy directories for the example
+/// std::fs::create_dir_all(package_path.join("spm_dependencies/some-namespace/some-dependency")).unwrap();
+///
+/// let dependency_path = construct_dependency_path(package_path, "some-namespace", "some-dependency").unwrap();
+/// assert_eq!(dependency_path, package_path.join("spm_dependencies/some-namespace/some-dependency"));
+///
+/// // Cleanup the dummy directories
+/// std::fs::remove_dir_all(package_path.join("spm_dependencies")).unwrap();
+/// ```
 pub fn construct_dependency_path(
     package_path: &Path,
     namespace: &str,

@@ -1,9 +1,10 @@
 use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs::{DirEntry, File};
 use std::path::{Path, PathBuf};
 
-use super::dependency::Dependencies;
+use super::dependency::{Dependencies, Dependency};
 use crate::properties::{
     DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARY_ENTRYPOINT, DEFAULT_PACKAGE_JSON,
 };
@@ -116,8 +117,18 @@ impl Default for Package {
 
 impl From<File> for Package {
     fn from(value: File) -> Self {
-        let package: Package =
+        let mut package: Package =
             serde_json::from_reader(value).expect("Failed to parse JSON file into Package");
+
+        // Reconstruct the correct name and namespace
+        let mut new_dependencies: HashSet<Dependency> = HashSet::new();
+        for dependency in package.access_dependencies().get_all() {
+            let new_dependency: Dependency =
+                Dependency::new(dependency.url.clone(), dependency.version.clone()).unwrap();
+            new_dependencies.insert(new_dependency);
+        }
+        package.replace_dependencies(Dependencies::new(new_dependencies));
+
         package
     }
 }
@@ -172,7 +183,8 @@ impl Package {
             ));
         }
 
-        Ok(serde_json::from_reader(File::open(&package_json_path)?)?)
+        let file: File = File::open(package_json_path)?;
+        Ok(Package::from(file))
     }
 
     pub fn access_main_entrypoint(&self) -> &str {
@@ -188,6 +200,10 @@ impl Package {
 
     pub fn access_dependencies(&mut self) -> &mut Dependencies {
         &mut self.dependencies
+    }
+
+    pub fn replace_dependencies(&mut self, dependencies: Dependencies) {
+        self.dependencies = dependencies;
     }
 }
 

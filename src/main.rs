@@ -287,10 +287,7 @@ fn main() {
             }
 
             // Refresh dependencies
-            match package_manager.refresh_dependencies(
-                current_dir,
-                subcommand.version.as_deref(),
-            ) {
+            match package_manager.refresh_dependencies(current_dir, subcommand.version.as_deref()) {
                 Ok(dependencies) => {
                     if dependencies.is_empty() {
                         display_message(
@@ -299,10 +296,7 @@ fn main() {
                         );
                     } else {
                         let dep_message = if dependencies.len() == 1 {
-                            format!(
-                                "Successfully refreshed dependency: {}",
-                                dependencies[0]
-                            )
+                            format!("Successfully refreshed dependency: {}", dependencies[0])
                         } else {
                             format!(
                                 "Successfully refreshed {} dependencies: {}",

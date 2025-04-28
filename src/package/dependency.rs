@@ -1,6 +1,9 @@
 use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, path::{Path, PathBuf}};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use crate::commons::{
     git::fetch_remote_git_repository_with_version,
@@ -40,13 +43,10 @@ impl Dependency {
     pub fn get_full_name(&self) -> String {
         format!("{}/{}", self.namespace, self.name)
     }
-    
-    pub fn update(
-        &mut self,
-        package_path: &Path,
-        version: Option<&str>,
-    ) -> Result<(), Error> {
-        let dependency_path: PathBuf = construct_dependency_path(package_path, &self.namespace, &self.name)?;
+
+    pub fn update(&mut self, package_path: &Path, version: Option<&str>) -> Result<(), Error> {
+        let dependency_path: PathBuf =
+            construct_dependency_path(package_path, &self.namespace, &self.name)?;
         println!("{}", dependency_path.display());
 
         // Remove existing directory to ensure a clean slate before (re)install.
@@ -60,7 +60,7 @@ impl Dependency {
 
         // 4. Clone or copy the dependency from either a remote git repo or local path.
         let is_local: bool = Path::new(&updated_dependency.url).exists();
-        
+
         if is_local {
             // Check that the local path is a valid library
             let local_pkg: Package = Package::from_file(Path::new(&updated_dependency.url))?;
@@ -90,7 +90,7 @@ impl Dependency {
                 ));
             }
         }
-        
+
         // 5. Update the dependency version
         self.version = updated_dependency.version.clone();
 
@@ -105,8 +105,8 @@ pub struct Dependencies(HashSet<Dependency>);
 impl Dependencies {
     /// Creates a new empty dependencies collection
     #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self(HashSet::new())
+    pub fn new(dependencies: HashSet<Dependency>) -> Self {
+        Self(dependencies)
     }
 
     /// Adds a dependency to the collection
@@ -115,7 +115,9 @@ impl Dependencies {
         // since Dependency implements PartialEq and Eq
 
         // First, remove any existing dependency with the same name and namespace
-        if let Some(index) = self.find_by_name_and_namespace(&dependency.name, &dependency.namespace) {
+        if let Some(index) =
+            self.find_by_name_and_namespace(&dependency.name, &dependency.namespace)
+        {
             // With HashSet we need to remove the old entry first
             let dep_to_remove = self.0.iter().nth(index).cloned();
             if let Some(dep) = dep_to_remove {
@@ -126,11 +128,40 @@ impl Dependencies {
         // Insert the new dependency
         self.0.insert(dependency);
     }
-
-    /// Removes a dependency by name and namespace
+    
+    /// Removes a dependency from the collection by name and namespace.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The name of the dependency to remove.
+    /// * `namespace` - The namespace of the dependency to remove.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(Dependency)` if the dependency was found and removed, otherwise `None`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    /// use spm_rs::dependencies::{Dependencies, Dependency};
+    ///
+    /// let mut dependencies = Dependencies::new(HashSet::new());
+    /// let dep1 = Dependency::new("https://github.com/test/package1".to_string(), "1.0.0".to_string()).unwrap();
+    /// let dep2 = Dependency::new("https://github.com/test/package2".to_string(), "2.0.0".to_string()).unwrap();
+    /// dependencies.add(dep1.clone());
+    /// dependencies.add(dep2.clone());
+    ///
+    /// let removed_dependency = dependencies.remove("package1", "test");
+    ///
+    /// assert_eq!(removed_dependency, Some(dep1));
+    /// assert_eq!(dependencies.len(), 1);
+    /// ```
     pub fn remove(&mut self, name: &str, namespace: &str) -> Option<Dependency> {
         // Find the dependency with the given name and namespace
-        let dep_to_remove = self.0.iter()
+        let dep_to_remove = self
+            .0
+            .iter()
             .find(|dep| dep.name == name && dep.namespace == namespace)
             .cloned();
 
@@ -145,7 +176,8 @@ impl Dependencies {
 
     /// Finds a dependency by name and namespace
     pub fn find_by_name_and_namespace(&self, name: &str, namespace: &str) -> Option<usize> {
-        self.0.iter()
+        self.0
+            .iter()
             .position(|dependency| dependency.name == name && namespace == &dependency.namespace)
     }
 
@@ -153,7 +185,7 @@ impl Dependencies {
     pub fn get_all(&self) -> &HashSet<Dependency> {
         &self.0
     }
-    
+
     /// Returns mutable references to all dependencies
     pub fn get_all_mut(&mut self) -> &mut HashSet<Dependency> {
         &mut self.0

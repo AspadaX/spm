@@ -1,16 +1,20 @@
 use anyhow::{Error, Result, anyhow};
+use std::collections::HashSet;
 use std::fs::{DirEntry, File};
 use std::path::{Path, PathBuf};
 
 use crate::commons::git::fetch_remote_git_repository_with_version;
-use crate::commons::utilities::{construct_dependency_path, copy_dir_all, extract_name_and_namespace};
+use crate::commons::utilities::{
+    construct_dependency_path, copy_dir_all, extract_name_and_namespace,
+};
 use crate::properties::{
-    DEFAULT_BIN_FOLDER, DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER, DEFAULT_SPM_PACKAGES_FOLDER
+    DEFAULT_BIN_FOLDER, DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER,
+    DEFAULT_SPM_PACKAGES_FOLDER,
 };
 use crate::shell::{ExecutionContext, execute_shell_script_with_context};
 
 use super::creator::create_package_structure;
-use super::dependency::Dependency;
+use super::dependency::{Dependencies, Dependency};
 use super::metadata::{Package, PackageMetadata, normalize_package_name};
 
 #[derive(Debug, Clone)]
@@ -354,29 +358,25 @@ impl PackageManager {
     }
 }
 
-/// When launching `spm` under a shell script project, 
-/// this will be hanlding the package wide functionalities. 
+/// When launching `spm` under a shell script project,
+/// this will be hanlding the package wide functionalities.
 #[derive(Debug, Clone)]
 pub struct LocalPackageManager {
     package_json_path: PathBuf,
     root_directory: PathBuf,
-    package: Package
+    package: Package,
 }
 
 impl LocalPackageManager {
     pub fn new(package_root_directory: PathBuf) -> Self {
         LocalPackageManager {
-            package: Package::from_file(
-                Path::new(
-                    &std::env::current_dir().unwrap()
-                )
-            )
+            package: Package::from_file(Path::new(&std::env::current_dir().unwrap()))
                 .expect("Failed to load package.json from current directory"),
             package_json_path: package_root_directory.join(DEFAULT_PACKAGE_JSON),
             root_directory: package_root_directory,
         }
     }
-    
+
     /// Adds a dependency to a local package
     pub fn add_dependency(
         &self,
@@ -429,7 +429,7 @@ impl LocalPackageManager {
         // 6. Add the dependency to the current package’s package.json
         let mut package: Package = Package::from_file(package_path)?;
         package.dependencies.add(dependency);
-        
+
         self.update_package_json();
 
         Ok(())
@@ -437,49 +437,20 @@ impl LocalPackageManager {
 
     /// Removes a dependency from a local package
     pub fn remove_dependency(
-        &self,
+        &mut self,
         package_path: &Path,
         name: &str,
         namespace: &str,
     ) -> Result<(), Error> {
-        // Load the package.json
-        let package_json_path: PathBuf = package_path.join(DEFAULT_PACKAGE_JSON);
-        let mut package: Package = super::metadata::Package::from_file(package_path)?;
-        // Reconstruct the correct name and namespace
-        for dependency in package.access_dependencies().get_all_mut().iter_mut() {
-            let (name, namespace) = extract_name_and_namespace(&dependency.url)?;
-            dependency.name = name;
-            dependency.namespace = namespace;
-        }
-
-        // Check if the dependency exists
-        if package
-            .dependencies
-            .find_by_name_and_namespace(name, namespace)
-            .is_none()
-        {
-            return Err(anyhow!(
-                "Dependency '{}' with namespace '{}' not found in {}",
-                name,
-                namespace,
-                DEFAULT_PACKAGE_JSON
-            ));
-        }
-
         // Remove the dependency from the package.json
-        if let Some(removed_dep) = package.dependencies.remove(name, &namespace) {
-            // Save the updated package.json
-            let file: File = std::fs::File::create(&package_json_path)?;
-            serde_json::to_writer_pretty(file, &package)?;
-
-            // Construct dependency directory name
-            let dependency_dir_name: String =
-                format!("{}/{}", removed_dep.namespace, removed_dep.name);
-
+        // Since the `remove` method will return `None` when the pacakge is not found,
+        // we will use this result to determine if this is a valid package to remove. 
+        if let Some(_) = self.package.dependencies.remove(name, &namespace) {
+            // Update the package.json file
+            self.update_package_json();
+            
             // Remove the dependency directory
-            let dependency_path = package_path
-                .join(DEFAULT_DEPENDENCIES_FOLDER)
-                .join(&dependency_dir_name);
+            let dependency_path: PathBuf = construct_dependency_path(package_path, namespace, name)?;
             if dependency_path.exists() {
                 std::fs::remove_dir_all(&dependency_path)?;
             }
@@ -487,7 +458,12 @@ impl LocalPackageManager {
             return Ok(());
         }
 
-        Err(anyhow!("Failed to remove dependency"))
+        return Err(anyhow!(
+            "Dependency '{}' with namespace '{}' not found in {}",
+            name,
+            namespace,
+            DEFAULT_PACKAGE_JSON
+        ));
     }
 
     /// Refreshes all dependencies or a specific dependency in a package
@@ -499,23 +475,27 @@ impl LocalPackageManager {
         package_path: &Path,
         version: Option<&str>,
     ) -> Result<Vec<String>, Error> {
-        let mut package: Package = Package::from_file(package_path)?;
-        
         // This will hold the list of successfully refreshed dependency names
         let mut processed_dependencies: Vec<String> = Vec::new();
-        
-        // 3. For each dependency, remove any old copy, then clone/copy it again.
-        for dependency in package.dependencies.get_all().iter() {
-            dependency.update(package_path, version)?;
+
+        // Create a new HashSet for storing the updated dependencies
+        let mut new_dependencies: HashSet<Dependency> = HashSet::new();
+        for dependency in self.package.dependencies.get_all() {
+            let mut new_dependency: Dependency = dependency.clone();
+            new_dependency.update(package_path, version)?;
+            new_dependencies.insert(new_dependency);
+
             processed_dependencies.push(dependency.get_full_name());
         }
-        
+        // Swap the old dependencies with the new ones
+        self.package.dependencies = Dependencies::new(new_dependencies);
+
         self.update_package_json()?;
 
         // 7. Return the complete set of processed dependency names
         Ok(processed_dependencies)
     }
-    
+
     pub fn load_package_json(&mut self) -> Result<Package, Error> {
         if !self.package_json_path.exists() {
             return Err(anyhow!("Package.json file not found"));
@@ -523,7 +503,7 @@ impl LocalPackageManager {
         let package: Package = Package::from_file(&self.package_json_path)?;
         Ok(package)
     }
-    
+
     pub fn update_package_json(&self) -> Result<(), Error> {
         let file: File = File::create(&self.package_json_path)?;
         let package: Package = Package::from_file(&self.package_json_path)?;
