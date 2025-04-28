@@ -3,7 +3,7 @@ use std::fs::{DirEntry, File};
 use std::path::{Path, PathBuf};
 
 use crate::commons::git::fetch_remote_git_repository_with_version;
-use crate::commons::utilities::{copy_dir_all, extract_name_and_namespace};
+use crate::commons::utilities::{construct_dependency_path, copy_dir_all, extract_name_and_namespace};
 use crate::properties::{
     DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER,
     DEFAULT_SPM_PACKAGES_FOLDER,
@@ -475,122 +475,33 @@ impl PackageManager {
     /// Refreshes all dependencies or a specific dependency in a package
     /// If a dependency is manually added to package.json, this will install it
     pub fn refresh_dependencies(
-        &self,
+        &mut self,
         package_path: &Path,
-        dependency_name: Option<&str>,
-        namespace: &str,
         version: Option<&str>,
     ) -> Result<Vec<String>, Error> {
-        // 1. Load the package and ensure the "dependencies" folder exists.
         let mut package: Package = Package::from_file(package_path)?;
-        let dependencies_dir = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
-        if !dependencies_dir.exists() {
-            std::fs::create_dir_all(&dependencies_dir)?;
-        }
-
-        // 2. Build a set of dependencies to process:
-        //    - If dependency_name is Some(...), only refresh that one.
-        //    - Otherwise, refresh them all.
-        let all_deps_to_refresh: Vec<Dependency> = if let Some(name) = dependency_name {
-            let maybe_dep: Option<&Dependency> = package
-                .dependencies
-                .get_all()
-                .iter()
-                .find(|d| d.name == name && d.namespace == namespace);
-            if maybe_dep.is_none() {
-                return Err(anyhow!("Dependency '{}' not found in package.json", name));
-            }
-            vec![maybe_dep.unwrap().clone()]
-        } else {
-            package.dependencies.get_all().to_vec()
-        };
-
+        
         // This will hold the list of successfully refreshed dependency names
         let mut processed_dependencies: Vec<String> = Vec::new();
 
         // 3. For each dependency, remove any old copy, then clone/copy it again.
-        for dep in all_deps_to_refresh {
-            // Construct the folder name used under the "dependencies" directory.
-            let dep_dir_name: String = format!("{}/{}", dep.namespace, dep.name);
-            let dep_path: PathBuf = dependencies_dir.join(&dep_dir_name);
-
-            // Remove existing directory to ensure a clean slate before (re)install.
-            if dep_path.exists() {
-                std::fs::remove_dir_all(&dep_path)?;
-            }
-
-            // Determine what version will be used (either forced or from package.json).
-            let new_version: String = version.unwrap_or(&dep.version).to_owned();
-            let updated_dep: Dependency = Dependency::new(dep.url.clone(), new_version)?;
-
-            // 4. Clone or copy the dependency from either a remote git repo or local path.
-            let is_local = Path::new(&updated_dep.url).exists();
-            if is_local {
-                // Check that the local path is a valid library
-                let local_pkg_json: PathBuf =
-                    Path::new(&updated_dep.url).join(DEFAULT_PACKAGE_JSON);
-                if !local_pkg_json.exists() {
-                    return Err(anyhow!(
-                        "Local path '{}' is not a valid SPM package (missing {})",
-                        updated_dep.url,
-                        DEFAULT_PACKAGE_JSON
-                    ));
-                }
-                let local_pkg = Package::from_file(Path::new(&updated_dep.url))?;
-                if !local_pkg.is_library {
-                    return Err(anyhow!(
-                        "Package '{}' is not marked as a library. Only libraries can be added as dependencies.",
-                        local_pkg.get_full_name()
-                    ));
-                }
-                copy_dir_all(Path::new(&updated_dep.url), &dep_path)?;
-            }
-
-            if !is_local {
-                // Fetch from remote git repository
-                fetch_remote_git_repository_with_version(
-                    &updated_dep.url,
-                    Some(&updated_dep.version),
-                    Some(&dep_path),
-                )?;
-                // Validate that what we downloaded is a proper SPM library
-                let remote_pkg_json: PathBuf = dep_path.join(DEFAULT_PACKAGE_JSON);
-                if !remote_pkg_json.exists() {
-                    std::fs::remove_dir_all(&dep_path)?;
-                    return Err(anyhow!(
-                        "Updated dependency at '{}' is not a valid SPM package (missing {})",
-                        updated_dep.url,
-                        DEFAULT_PACKAGE_JSON
-                    ));
-                }
-                let remote_pkg: Package = Package::from_file(&dep_path)?;
-                if !remote_pkg.is_library {
-                    std::fs::remove_dir_all(&dep_path)?;
-                    return Err(anyhow!(
-                        "Package '{}' is not marked as a library. Only libraries can be added as dependencies.",
-                        remote_pkg.get_full_name()
-                    ));
-                }
-            }
-
-            // 5. Update the in-memory “package” struct to reflect the new version.
-            if let Some(idx) = package
-                .dependencies
-                .find_by_name_and_namespace(&dep.name, &dep.namespace)
-            {
-                package.access_dependencies().get_all_mut()[idx] = updated_dep.clone();
-            }
-
-            processed_dependencies.push(updated_dep.get_full_name());
+        for dependency in package.dependencies.get_all_mut() {
+            dependency.update(package_path, version);
+            processed_dependencies.push(dependency.get_full_name());
         }
-
-        // 6. Write the updated package.json back to disk.
-        let pkg_json_path: PathBuf = package_path.join(DEFAULT_PACKAGE_JSON);
-        let file: File = File::create(pkg_json_path)?;
-        serde_json::to_writer_pretty(file, &package)?;
+        
+        self.update_package_json();
 
         // 7. Return the complete set of processed dependency names
         Ok(processed_dependencies)
+    }
+    
+    pub fn update_package_json(&self) -> Result<(), Error> {
+        let package_path: PathBuf = self.root_directory.join(DEFAULT_PACKAGE_JSON);
+        let file: File = File::create(&package_path)?;
+        let package: Package = Package::from_file(&package_path)?;
+        serde_json::to_writer_pretty(file, &package)?;
+        Ok(())
     }
 }
 

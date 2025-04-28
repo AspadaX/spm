@@ -21,7 +21,7 @@ fn main() {
     // Parse command line arguments
     let arguments: Arguments = Arguments::parse();
     // Initialize a package manager
-    let package_manager: PackageManager = match PackageManager::new() {
+    let mut package_manager: PackageManager = match PackageManager::new() {
         Ok(result) => result,
         Err(error) => {
             display_message(
@@ -285,52 +285,39 @@ fn main() {
                 );
                 return;
             }
-            
-            if let Some(name) = subcommand.name {
-                match extract_name_and_namespace(&name) {
-                    Ok((name, namespace)) => {
-                        // Refresh dependencies
-                        match package_manager.refresh_dependencies(
-                            current_dir,
-                            Some(&name),
-                            &namespace,
-                            subcommand.version.as_deref(),
-                        ) {
-                            Ok(dependencies) => {
-                                if dependencies.is_empty() {
-                                    display_message(
-                                        display_control::Level::Logging,
-                                        "No dependencies to refresh.",
-                                    );
-                                } else {
-                                    let dep_message = if dependencies.len() == 1 {
-                                        format!("Successfully refreshed dependency: {}", dependencies[0])
-                                    } else {
-                                        format!(
-                                            "Successfully refreshed {} dependencies: {}",
-                                            dependencies.len(),
-                                            dependencies.join(", ")
-                                        )
-                                    };
-                                    display_message(display_control::Level::Logging, &dep_message);
-                                }
-                            }
-                            Err(error) => display_message(
-                                display_control::Level::Error,
-                                &format!("Error refreshing dependencies: {}", error.to_string()),
-                            ),
-                        }
-                    },
-                    Err(error) => {
+
+            // Refresh dependencies
+            match package_manager.refresh_dependencies(
+                current_dir,
+                subcommand.version.as_deref(),
+            ) {
+                Ok(dependencies) => {
+                    if dependencies.is_empty() {
                         display_message(
-                            display_control::Level::Error,
-                            &format!("Error extracting name and namespace: {}", error.to_string()),
+                            display_control::Level::Logging,
+                            "No dependencies to refresh.",
                         );
-                        return;
+                    } else {
+                        let dep_message = if dependencies.len() == 1 {
+                            format!(
+                                "Successfully refreshed dependency: {}",
+                                dependencies[0]
+                            )
+                        } else {
+                            format!(
+                                "Successfully refreshed {} dependencies: {}",
+                                dependencies.len(),
+                                dependencies.join(", ")
+                            )
+                        };
+                        display_message(display_control::Level::Logging, &dep_message);
                     }
                 }
+                Err(error) => display_message(
+                    display_control::Level::Error,
+                    &format!("Error refreshing dependencies: {}", error.to_string()),
+                ),
             }
-
         }
     }
 

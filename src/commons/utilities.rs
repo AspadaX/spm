@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Error, Result, anyhow};
 
-use crate::properties::DEFAULT_LOCAL_PACKAGE_NAMESPACE;
+use crate::properties::{DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_LOCAL_PACKAGE_NAMESPACE};
 use crate::{
     display_control::{Level, display_form, display_message, display_tree_message, input_message},
     package::{Package, PackageManager, PackageMetadata, is_inside_a_package},
@@ -180,6 +180,7 @@ pub fn execute_run_command(
     Err(anyhow!("No packages found with name: {}", expression))
 }
 
+/// Display packages with a column sytle
 pub fn show_packages(packages_metadata: &Vec<PackageMetadata>) {
     let mut form_data: Vec<Vec<String>> = Vec::new();
 
@@ -484,4 +485,32 @@ pub fn extract_name_and_namespace(text: &str) -> Result<(String, String), Error>
     }
 
     return Err(anyhow!("Wrong input"));
+}
+
+/// Construct the folder name used under the "dependencies" directory. 
+/// Return error when a dependency folder does not exist in the package,
+/// or if the given dependency package path does not eixst.
+pub fn construct_dependency_path(
+    package_path: &Path,
+    namespace: &str,
+    name: &str,
+) -> Result<PathBuf, Error> {
+    let root_dependencies_directory: PathBuf = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
+
+    if !root_dependencies_directory.exists() {
+        return Err(anyhow!(
+            "The project lacks a folder for dependency. Please check the project integrity"
+        ));
+    }
+
+    let dependencies_directory: PathBuf = root_dependencies_directory.join(namespace).join(name);
+
+    if !dependencies_directory.exists() {
+        return Err(anyhow!(
+            "{} does not exist. Please check the dependency integrity",
+            package_path.display()
+        ));
+    }
+
+    Ok(dependencies_directory)
 }
