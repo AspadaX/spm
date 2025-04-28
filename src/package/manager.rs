@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::commons::git::fetch_remote_git_repository_with_version;
 use crate::commons::utilities::{construct_dependency_path, copy_dir_all, extract_name_and_namespace};
 use crate::properties::{
-    DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER,
-    DEFAULT_SPM_PACKAGES_FOLDER,
+    DEFAULT_BIN_FOLDER, DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER, DEFAULT_SPM_PACKAGES_FOLDER
 };
 use crate::shell::{ExecutionContext, execute_shell_script_with_context};
 
@@ -27,7 +26,7 @@ impl PackageManager {
 
         if !root_directory.exists() {
             // Create both packages and bin folders
-            match std::fs::create_dir_all(&root_directory.join("packages")) {
+            match std::fs::create_dir_all(&root_directory.join(DEFAULT_SPM_PACKAGES_FOLDER)) {
                 Ok(_) => (),
                 Err(e) => {
                     return Err(anyhow!(
@@ -38,7 +37,7 @@ impl PackageManager {
                 }
             }
 
-            match std::fs::create_dir_all(&root_directory.join("bin")) {
+            match std::fs::create_dir_all(&root_directory.join(DEFAULT_BIN_FOLDER)) {
                 Ok(_) => (),
                 Err(e) => {
                     return Err(anyhow!("Failed to create bin directory: {}", e));
@@ -51,7 +50,7 @@ impl PackageManager {
 
     /// Returns the path to the binary directory where executable scripts are symlinked.
     pub fn get_bin_directory(&self) -> Result<PathBuf, Error> {
-        let bin_dir = self.root_directory.join("bin");
+        let bin_dir: PathBuf = self.root_directory.join(DEFAULT_BIN_FOLDER);
 
         // Create the bin directory if it doesn't exist
         if !bin_dir.exists() {
@@ -353,7 +352,31 @@ impl PackageManager {
         let package_metadata: PackageMetadata = self.get_package_by_name(package_name)?;
         self.uninstall_package(package_metadata.path_to_package.as_path())
     }
+}
 
+/// When launching `spm` under a shell script project, 
+/// this will be hanlding the package wide functionalities. 
+#[derive(Debug, Clone)]
+pub struct LocalPackageManager {
+    package_json_path: PathBuf,
+    root_directory: PathBuf,
+    package: Package
+}
+
+impl LocalPackageManager {
+    pub fn new(package_root_directory: PathBuf) -> Self {
+        LocalPackageManager {
+            package: Package::from_file(
+                Path::new(
+                    &std::env::current_dir().unwrap()
+                )
+            )
+                .expect("Failed to load package.json from current directory"),
+            package_json_path: package_root_directory.join(DEFAULT_PACKAGE_JSON),
+            root_directory: package_root_directory,
+        }
+    }
+    
     /// Adds a dependency to a local package
     pub fn add_dependency(
         &self,
@@ -372,7 +395,7 @@ impl PackageManager {
         let dependencies_dir: PathBuf = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
         if !dependencies_dir.exists() {
             return Err(anyhow!(
-                "`{}` does not exist in the project root. Please ensure the project is intact",
+                "`{}` does not exist in the project root. Please ensure the project integrity",
                 DEFAULT_DEPENDENCIES_FOLDER
             ));
         }
@@ -406,11 +429,8 @@ impl PackageManager {
         // 6. Add the dependency to the current package’s package.json
         let mut package: Package = Package::from_file(package_path)?;
         package.dependencies.add(dependency);
-
-        // 7. Write the updated package.json to disk
-        let package_json_path: PathBuf = package_path.join(DEFAULT_PACKAGE_JSON);
-        let file: File = File::create(&package_json_path)?;
-        serde_json::to_writer_pretty(file, &package)?;
+        
+        self.update_package_json();
 
         Ok(())
     }
@@ -483,23 +503,30 @@ impl PackageManager {
         
         // This will hold the list of successfully refreshed dependency names
         let mut processed_dependencies: Vec<String> = Vec::new();
-
+        
         // 3. For each dependency, remove any old copy, then clone/copy it again.
-        for dependency in package.dependencies.get_all_mut() {
-            dependency.update(package_path, version);
+        for dependency in package.dependencies.get_all().iter() {
+            dependency.update(package_path, version)?;
             processed_dependencies.push(dependency.get_full_name());
         }
         
-        self.update_package_json();
+        self.update_package_json()?;
 
         // 7. Return the complete set of processed dependency names
         Ok(processed_dependencies)
     }
     
+    pub fn load_package_json(&mut self) -> Result<Package, Error> {
+        if !self.package_json_path.exists() {
+            return Err(anyhow!("Package.json file not found"));
+        }
+        let package: Package = Package::from_file(&self.package_json_path)?;
+        Ok(package)
+    }
+    
     pub fn update_package_json(&self) -> Result<(), Error> {
-        let package_path: PathBuf = self.root_directory.join(DEFAULT_PACKAGE_JSON);
-        let file: File = File::create(&package_path)?;
-        let package: Package = Package::from_file(&package_path)?;
+        let file: File = File::create(&self.package_json_path)?;
+        let package: Package = Package::from_file(&self.package_json_path)?;
         serde_json::to_writer_pretty(file, &package)?;
         Ok(())
     }

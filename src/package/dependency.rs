@@ -1,6 +1,6 @@
 use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{collections::HashSet, path::{Path, PathBuf}};
 
 use crate::commons::{
     git::fetch_remote_git_repository_with_version,
@@ -10,7 +10,7 @@ use crate::commons::{
 use super::Package;
 
 /// Represents a single dependency with repository URL and version
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Dependency {
     /// The full repository URL where the package can be downloaded
     pub url: String,
@@ -47,6 +47,7 @@ impl Dependency {
         version: Option<&str>,
     ) -> Result<(), Error> {
         let dependency_path: PathBuf = construct_dependency_path(package_path, &self.namespace, &self.name)?;
+        println!("{}", dependency_path.display());
 
         // Remove existing directory to ensure a clean slate before (re)install.
         if dependency_path.exists() {
@@ -99,40 +100,44 @@ impl Dependency {
 
 /// Collection of dependencies as a vector
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Dependencies(Vec<Dependency>);
+pub struct Dependencies(HashSet<Dependency>);
 
 impl Dependencies {
     /// Creates a new empty dependencies collection
     #[allow(dead_code)]
     pub fn new() -> Self {
-        Self(Vec::new())
+        Self(HashSet::new())
     }
 
     /// Adds a dependency to the collection
     pub fn add(&mut self, dependency: Dependency) {
-        // Only add if no dependency with the same URL and version exists
-        if self
-            .0
-            .iter()
-            .any(|d| d.url == dependency.url && d.version == dependency.version)
-        {
-            // Do not add duplicate
-            return;
+        // The HashSet will automatically handle duplicates with the same URL and version
+        // since Dependency implements PartialEq and Eq
+
+        // First, remove any existing dependency with the same name and namespace
+        if let Some(index) = self.find_by_name_and_namespace(&dependency.name, &dependency.namespace) {
+            // With HashSet we need to remove the old entry first
+            let dep_to_remove = self.0.iter().nth(index).cloned();
+            if let Some(dep) = dep_to_remove {
+                self.0.remove(&dep);
+            }
         }
-        // If a dependency with the same name and namespace exists, replace it
-        if let Some(index) =
-            self.find_by_name_and_namespace(&dependency.name, &dependency.namespace)
-        {
-            self.0[index] = dependency;
-        } else {
-            self.0.push(dependency);
-        }
+
+        // Insert the new dependency
+        self.0.insert(dependency);
     }
 
     /// Removes a dependency by name and namespace
     pub fn remove(&mut self, name: &str, namespace: &str) -> Option<Dependency> {
-        if let Some(index) = self.find_by_name_and_namespace(name, namespace) {
-            Some(self.0.remove(index))
+        // Find the dependency with the given name and namespace
+        let dep_to_remove = self.0.iter()
+            .find(|dep| dep.name == name && dep.namespace == namespace)
+            .cloned();
+
+        // If found, remove it from the HashSet and return it
+        if let Some(dep) = dep_to_remove {
+            self.0.remove(&dep);
+            Some(dep)
         } else {
             None
         }
@@ -140,28 +145,18 @@ impl Dependencies {
 
     /// Finds a dependency by name and namespace
     pub fn find_by_name_and_namespace(&self, name: &str, namespace: &str) -> Option<usize> {
-        for (index, dependency) in self.0.iter().enumerate() {
-            if dependency.name == name && namespace == &dependency.namespace {
-                return Some(index);
-            }
-        }
-        None
-    }
-    
-    /// Finds a dependency by URL
-    pub fn find_by_url(&self, url: &str) -> Option<usize> {
-        for (index, dependency) in self.0.iter().enumerate() {
-            if dependency.url == url {
-                return Some(index);
-            }
-        }
-        
-        None
+        self.0.iter()
+            .position(|dependency| dependency.name == name && namespace == &dependency.namespace)
     }
 
     /// Returns all dependencies
-    pub fn get_all(&self) -> &[Dependency] {
+    pub fn get_all(&self) -> &HashSet<Dependency> {
         &self.0
+    }
+    
+    /// Returns mutable references to all dependencies
+    pub fn get_all_mut(&mut self) -> &mut HashSet<Dependency> {
+        &mut self.0
     }
 
     /// Returns the number of dependencies
@@ -174,10 +169,5 @@ impl Dependencies {
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
-    }
-
-    // Provide a public method returning a mutable reference to the inner Vec
-    pub fn get_all_mut(&mut self) -> &mut Vec<Dependency> {
-        &mut self.0
     }
 }

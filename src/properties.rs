@@ -2,6 +2,7 @@
 pub const DEFAULT_SPM_FOLDER: &str = ".spm";
 pub const DEFAULT_SPM_PACKAGES_FOLDER: &str = "packages";
 pub const DEFAULT_TEMPORARY_FOLDER: &str = "tmp";
+pub const DEFAULT_BIN_FOLDER: &str = "bin";
 pub const DEFAULT_LOCAL_PACKAGE_NAMESPACE: &str = "local";
 
 /// Local level (package level) public variables
