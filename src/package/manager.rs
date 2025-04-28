@@ -379,7 +379,7 @@ impl LocalPackageManager {
 
     /// Adds a dependency to a local package
     pub fn add_dependency(
-        &self,
+        &mut self,
         package_path: &Path,
         dependency_package_path: &Path,
         url: &str,
@@ -391,19 +391,12 @@ impl LocalPackageManager {
             return Err(anyhow!("Failed to extract valid repository name from URL"));
         }
 
-        // 2. Create the dependencies folder if necessary
-        let dependencies_dir: PathBuf = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
-        if !dependencies_dir.exists() {
-            return Err(anyhow!(
-                "`{}` does not exist in the project root. Please ensure the project integrity",
-                DEFAULT_DEPENDENCIES_FOLDER
-            ));
-        }
-
         // 3. Build the local installation path (namespace + name)
-        let target_path: PathBuf = dependencies_dir
-            .join(&dependency.namespace)
-            .join(&dependency.name);
+        let target_path: PathBuf = construct_dependency_path(
+            package_path, 
+            &dependency.namespace, 
+            &dependency.name
+        )?;
 
         // 4. Abort if a folder with the same name already exists
         if target_path.exists() {
@@ -427,8 +420,7 @@ impl LocalPackageManager {
         copy_dir_all(Path::new(dependency_package_path), &target_path)?;
 
         // 6. Add the dependency to the current package’s package.json
-        let mut package: Package = Package::from_file(package_path)?;
-        package.dependencies.add(dependency);
+        self.package.dependencies.add(dependency);
 
         self.update_package_json();
 

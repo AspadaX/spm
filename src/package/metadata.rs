@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use super::dependency::{Dependencies, Dependency};
 use crate::properties::{
-    DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARY_ENTRYPOINT, DEFAULT_PACKAGE_JSON,
+    DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARY_ENTRYPOINT, DEFAULT_PACKAGE_JSON, DEFAULT_SRC_FOLDER
 };
 use crate::shell::ShellType;
 
@@ -119,7 +119,7 @@ impl From<File> for Package {
     fn from(value: File) -> Self {
         let mut package: Package =
             serde_json::from_reader(value).expect("Failed to parse JSON file into Package");
-
+        
         // Reconstruct the correct name and namespace
         let mut new_dependencies: HashSet<Dependency> = HashSet::new();
         for dependency in package.access_dependencies().get_all() {
@@ -182,9 +182,12 @@ impl Package {
                 DEFAULT_PACKAGE_JSON
             ));
         }
+        
+        let file: File = File::open(&package_json_path)?;
+        let package_json: Package = Package::from(file);
+        verify_package_integrity(&package_json_path, &package_json)?;
 
-        let file: File = File::open(package_json_path)?;
-        Ok(Package::from(file))
+        Ok(package_json)
     }
 
     pub fn access_main_entrypoint(&self) -> &str {
@@ -249,4 +252,51 @@ pub fn normalize_package_name(name: &str) -> String {
     normalized_name
         .trim_start_matches(standardized_separator)
         .to_string()
+}
+
+pub fn verify_package_integrity(
+    package_path: &Path,
+    package_json: &Package,
+) -> Result<(), Error> {
+    let entrypoint: PathBuf = package_path.join(&package_json.entrypoint);
+    if !entrypoint.is_file() {
+        return Err(anyhow!(
+            "Entrypoint {} is missing in the provided package path",
+            entrypoint.display()
+        ));
+    }
+
+    let setup_script: PathBuf = package_path.join(&package_json.install.setup_script);
+    if !setup_script.is_file() {
+        return Err(anyhow!(
+            "Setup script {} is missing in the provided package path",
+            setup_script.display()
+        ));
+    }
+
+    let uninstall_script: PathBuf = package_path.join(&package_json.uninstall);
+    if !uninstall_script.is_file() {
+        return Err(anyhow!(
+            "Uninstall script {} is missing in the provided package path",
+            uninstall_script.display()
+        ));
+    }
+    
+    let dependencies_folder: PathBuf = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
+    if !dependencies_folder.is_dir() {
+        return Err(anyhow!(
+            "Dependencies folder {} is missing in the provided package path",
+            dependencies_folder.display()
+        ));
+    }
+
+    let src_folder: PathBuf = package_path.join(DEFAULT_SRC_FOLDER);
+    if !src_folder.is_dir() {
+        return Err(anyhow!(
+            "Src folder {} is missing in the provided package path",
+            src_folder.display()
+        ));
+    }
+
+    Ok(())
 }

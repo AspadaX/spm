@@ -528,12 +528,6 @@ pub fn construct_dependency_path(
 ) -> Result<PathBuf, Error> {
     let root_dependencies_directory: PathBuf = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
 
-    if !root_dependencies_directory.exists() {
-        return Err(anyhow!(
-            "The project lacks a folder for dependency. Please check the project integrity"
-        ));
-    }
-
     let dependencies_directory: PathBuf = root_dependencies_directory.join(namespace).join(name);
 
     if !dependencies_directory.exists() {
