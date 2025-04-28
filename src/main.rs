@@ -15,7 +15,7 @@ use commons::utilities::{
     extract_name_and_namespace, handle_installation_path, show_packages,
 };
 use display_control::display_message;
-use package::{Package, PackageManager};
+use package::{manager::LocalPackageManager, Package, PackageManager};
 
 fn main() {
     // Parse command line arguments
@@ -198,6 +198,10 @@ fn main() {
                 );
                 return;
             }
+            
+            let mut local_package_manager: LocalPackageManager = LocalPackageManager::new(
+                current_dir.to_path_buf()
+            );
 
             // Handle if the package is a remote repository.
             // Get a path to a dependency to install afterall.
@@ -210,7 +214,7 @@ fn main() {
                 &mut is_move,
             );
 
-            match package_manager.add_dependency(
+            match local_package_manager.add_dependency(
                 current_dir,
                 dependency_package_path.as_path(),
                 &url_or_path,
@@ -262,9 +266,13 @@ fn main() {
                 }
             };
             let dependency_desc: String = format!("'{}/{}'", namespace, name);
+            
+            let mut local_package_manager: LocalPackageManager = LocalPackageManager::new(
+                current_dir.to_path_buf()
+            );
 
             // Remove the dependency from the package
-            match package_manager.remove_dependency(current_dir, &name, &namespace) {
+            match local_package_manager.remove_dependency(current_dir, &name, &namespace) {
                 Ok(_) => display_message(
                     display_control::Level::Logging,
                     &format!("Successfully removed dependency {}", dependency_desc),
@@ -285,9 +293,13 @@ fn main() {
                 );
                 return;
             }
+            
+            let mut local_package_manager: LocalPackageManager = LocalPackageManager::new(
+                current_dir.to_path_buf()
+            );
 
             // Refresh dependencies
-            match package_manager.refresh_dependencies(current_dir, subcommand.version.as_deref()) {
+            match local_package_manager.refresh_dependencies(current_dir, subcommand.version.as_deref()) {
                 Ok(dependencies) => {
                     if dependencies.is_empty() {
                         display_message(
@@ -295,7 +307,7 @@ fn main() {
                             "No dependencies to refresh.",
                         );
                     } else {
-                        let dep_message = if dependencies.len() == 1 {
+                        let dep_message: String = if dependencies.len() == 1 {
                             format!("Successfully refreshed dependency: {}", dependencies[0])
                         } else {
                             format!(

@@ -530,12 +530,5 @@ pub fn construct_dependency_path(
 
     let dependencies_directory: PathBuf = root_dependencies_directory.join(namespace).join(name);
 
-    if !dependencies_directory.exists() {
-        return Err(anyhow!(
-            "{} does not exist. Please check the dependency integrity",
-            package_path.display()
-        ));
-    }
-
     Ok(dependencies_directory)
 }

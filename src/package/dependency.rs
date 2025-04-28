@@ -47,7 +47,6 @@ impl Dependency {
     pub fn update(&mut self, package_path: &Path, version: Option<&str>) -> Result<(), Error> {
         let dependency_path: PathBuf =
             construct_dependency_path(package_path, &self.namespace, &self.name)?;
-        println!("{}", dependency_path.display());
 
         // Remove existing directory to ensure a clean slate before (re)install.
         if dependency_path.exists() {

@@ -3,12 +3,11 @@ use std::collections::HashSet;
 use std::fs::{DirEntry, File};
 use std::path::{Path, PathBuf};
 
-use crate::commons::git::fetch_remote_git_repository_with_version;
 use crate::commons::utilities::{
-    construct_dependency_path, copy_dir_all, extract_name_and_namespace,
+    construct_dependency_path, copy_dir_all,
 };
 use crate::properties::{
-    DEFAULT_BIN_FOLDER, DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER,
+    DEFAULT_BIN_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER,
     DEFAULT_SPM_PACKAGES_FOLDER,
 };
 use crate::shell::{ExecutionContext, execute_shell_script_with_context};
@@ -363,7 +362,6 @@ impl PackageManager {
 #[derive(Debug, Clone)]
 pub struct LocalPackageManager {
     package_json_path: PathBuf,
-    root_directory: PathBuf,
     package: Package,
 }
 
@@ -373,7 +371,6 @@ impl LocalPackageManager {
             package: Package::from_file(Path::new(&std::env::current_dir().unwrap()))
                 .expect("Failed to load package.json from current directory"),
             package_json_path: package_root_directory.join(DEFAULT_PACKAGE_JSON),
-            root_directory: package_root_directory,
         }
     }
 
@@ -422,7 +419,7 @@ impl LocalPackageManager {
         // 6. Add the dependency to the current package’s package.json
         self.package.dependencies.add(dependency);
 
-        self.update_package_json();
+        self.update_package_json()?;
 
         Ok(())
     }
@@ -439,7 +436,7 @@ impl LocalPackageManager {
         // we will use this result to determine if this is a valid package to remove. 
         if let Some(_) = self.package.dependencies.remove(name, &namespace) {
             // Update the package.json file
-            self.update_package_json();
+            self.update_package_json()?;
             
             // Remove the dependency directory
             let dependency_path: PathBuf = construct_dependency_path(package_path, namespace, name)?;
