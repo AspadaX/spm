@@ -111,7 +111,7 @@ pub fn execute_run_command(
     if path.is_dir() {
         // Validate the directory
         if is_inside_a_package(path)? {
-            let package = Package::from_file(path)?;
+            let package: Package = Package::from_file(path)?;
             let main_entrypoint_filename: &str = package.access_main_entrypoint();
             // Execute from the current working directory for local package run
             return execute_shell_script_with_context(

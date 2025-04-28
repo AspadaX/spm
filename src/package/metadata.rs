@@ -175,15 +175,20 @@ impl Package {
 
     /// Load `package.json`
     pub fn from_file(file: &Path) -> Result<Self, Error> {
-        let package_json_path: PathBuf = file.join(DEFAULT_PACKAGE_JSON);
-        println!("{}", package_json_path.display());
-        let package_path: PathBuf = package_json_path.parent().unwrap().to_path_buf();
-        if !package_json_path.is_file() {
+        let mut package_json_path: PathBuf = file.to_path_buf();
+        if !file.ends_with(DEFAULT_PACKAGE_JSON) {
+            package_json_path = file.join(DEFAULT_PACKAGE_JSON);
+        }
+        if !package_json_path.exists() {
             return Err(anyhow!(
                 "{} is missing in the provided package path",
                 DEFAULT_PACKAGE_JSON
             ));
         }
+        println!("Package JSON path: {}", package_json_path.display());
+        
+        let package_path: PathBuf = package_json_path.parent().unwrap().to_path_buf();
+        println!("Package Path: {}", package_path.display());
         
         let file: File = File::open(&package_json_path)?;
         let package_json: Package = Package::from(file);
