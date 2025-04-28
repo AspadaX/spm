@@ -110,15 +110,12 @@ impl Dependencies {
 
     /// Adds a dependency to the collection
     pub fn add(&mut self, dependency: Dependency) {
-        // The HashSet will automatically handle duplicates with the same URL and version
-        // since Dependency implements PartialEq and Eq
-
         // First, remove any existing dependency with the same name and namespace
         if let Some(index) =
             self.find_by_name_and_namespace(&dependency.name, &dependency.namespace)
         {
             // With HashSet we need to remove the old entry first
-            let dep_to_remove = self.0.iter().nth(index).cloned();
+            let dep_to_remove: Option<Dependency> = self.0.iter().nth(index).cloned();
             if let Some(dep) = dep_to_remove {
                 self.0.remove(&dep);
             }

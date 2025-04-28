@@ -2,6 +2,7 @@ use anyhow::{Error, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::{DirEntry, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::dependency::{Dependencies, Dependency};
@@ -117,8 +118,13 @@ impl Default for Package {
 
 impl From<File> for Package {
     fn from(value: File) -> Self {
+        // Display the value content
+        let mut contents: String = String::new();
+        let mut file: File = value.try_clone().unwrap();
+        file.read_to_string(&mut contents).expect("Failed to read package.json to string");
         let mut package: Package =
-            serde_json::from_reader(value).expect("Failed to parse JSON file into Package");
+            serde_json::from_str(&contents)
+                .expect("Failed to parse JSON file into Package");
         
         // Reconstruct the correct name and namespace
         let mut new_dependencies: HashSet<Dependency> = HashSet::new();
@@ -135,12 +141,11 @@ impl From<File> for Package {
 
 impl Package {
     pub fn new(name: String, is_library: bool, interpreter: ShellType) -> Self {
-        let entrypoint: String = if is_library {
-            String::from(DEFAULT_LIBRARY_ENTRYPOINT)
-        } else {
-            String::from(DEFAULT_EXECUTABLE_ENTRYPOINT)
-        };
-
+        let mut entrypoint: String = String::from(DEFAULT_EXECUTABLE_ENTRYPOINT);
+        if is_library {
+            entrypoint = String::from(DEFAULT_LIBRARY_ENTRYPOINT);
+        }
+        
         Self {
             name,
             namespace: Some("default-namespace".to_string()), // Default namespace
@@ -185,10 +190,8 @@ impl Package {
                 DEFAULT_PACKAGE_JSON
             ));
         }
-        println!("Package JSON path: {}", package_json_path.display());
         
         let package_path: PathBuf = package_json_path.parent().unwrap().to_path_buf();
-        println!("Package Path: {}", package_path.display());
         
         let file: File = File::open(&package_json_path)?;
         let package_json: Package = Package::from(file);

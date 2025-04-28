@@ -40,8 +40,8 @@ run_dependency_management_tests() {
 
     # 4. Refresh dependencies (should fetch both)
     run_spm refresh
-    assert_dir_exists "local/local-lib" "Local dependency not installed"
-    assert_dir_exists "AspadaX/test-spm-library" "GitHub dependency not installed"
+    assert_dir_exists "dependencies/local/local-lib" "Local dependency not installed"
+    assert_dir_exists "dependencies/AspadaX/test-spm-library" "GitHub dependency not installed"
 
     # 5. Remove a dependency and verify
     run_spm remove local-lib

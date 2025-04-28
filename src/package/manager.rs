@@ -485,18 +485,9 @@ impl LocalPackageManager {
         Ok(processed_dependencies)
     }
 
-    pub fn load_package_json(&mut self) -> Result<Package, Error> {
-        if !self.package_json_path.exists() {
-            return Err(anyhow!("Package.json file not found"));
-        }
-        let package: Package = Package::from_file(&self.package_json_path)?;
-        Ok(package)
-    }
-
     pub fn update_package_json(&self) -> Result<(), Error> {
         let file: File = File::create(&self.package_json_path)?;
-        let package: Package = Package::from_file(&self.package_json_path)?;
-        serde_json::to_writer_pretty(file, &package)?;
+        serde_json::to_writer_pretty(file, &self.package)?;
         Ok(())
     }
 }

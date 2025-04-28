@@ -60,7 +60,7 @@ EOF
     # Update package.json manually to add library dependency with library_only flag
     pkg_json_content=$(cat package.json)
     temp_file=$(mktemp)
-    echo "$pkg_json_content" | jq '.dependencies = {"test-library": {"url": "../test-library", "version": "0.1.0", "library_only": true}}' > "$temp_file"
+    echo "$pkg_json_content" | jq '.dependencies = [{"name": "test-library", "url": "../test-library", "version": "0.1.0", "library_only": true}]' > "$temp_file"
     mv "$temp_file" package.json
     
     # Verify library dependency was added correctly
@@ -70,7 +70,7 @@ EOF
     
     # Test 4: Install the library dependency
     echo -e "\n${CYAN}Test 4: Installing the library dependency${NC}"
-    run_spm install
+    run_spm refresh
     assert_success "Failed to install library dependency"
     
     # Verify the library was installed
