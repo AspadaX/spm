@@ -167,7 +167,7 @@ pub struct AddDependencyArguments {
     pub version: String,
 
     /// Specify a base url if you would like to install a package hosted in
-    /// a differet git repository other than GitHub.
+    /// a different git repository other than GitHub.
     /// Use `-u` for short.
     #[arg(
         short = 'u',
