@@ -31,6 +31,21 @@ impl Dependency {
     /// Creates a new dependency with the specified repository URL and version
     pub fn new(url: String, version: String) -> Result<Self, Error> {
         let (name, namespace) = extract_name_and_namespace(&url)?;
+
+        if !url.starts_with("http") {
+            let url: String = Path::new(&url)
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            return Ok(Self {
+                url,
+                version,
+                name,
+                namespace,
+            });
+        }
+
         Ok(Self {
             url,
             version,
@@ -124,7 +139,7 @@ impl Dependencies {
         // Insert the new dependency
         self.0.insert(dependency);
     }
-    
+
     /// Removes a dependency from the collection by name and namespace.
     ///
     /// # Arguments

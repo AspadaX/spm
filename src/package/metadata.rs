@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use super::dependency::{Dependencies, Dependency};
 use crate::properties::{
-    DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARY_ENTRYPOINT, DEFAULT_PACKAGE_JSON, DEFAULT_SRC_FOLDER
+    DEFAULT_DEPENDENCIES_FOLDER, DEFAULT_EXECUTABLE_ENTRYPOINT, DEFAULT_LIBRARY_ENTRYPOINT,
+    DEFAULT_PACKAGE_JSON, DEFAULT_SRC_FOLDER,
 };
 use crate::shell::ShellType;
 
@@ -121,11 +122,11 @@ impl From<File> for Package {
         // Display the value content
         let mut contents: String = String::new();
         let mut file: File = value.try_clone().unwrap();
-        file.read_to_string(&mut contents).expect("Failed to read package.json to string");
+        file.read_to_string(&mut contents)
+            .expect("Failed to read package.json to string");
         let mut package: Package =
-            serde_json::from_str(&contents)
-                .expect("Failed to parse JSON file into Package");
-        
+            serde_json::from_str(&contents).expect("Failed to parse JSON file into Package");
+
         // Reconstruct the correct name and namespace
         let mut new_dependencies: HashSet<Dependency> = HashSet::new();
         for dependency in package.access_dependencies().get_all() {
@@ -145,7 +146,7 @@ impl Package {
         if is_library {
             entrypoint = String::from(DEFAULT_LIBRARY_ENTRYPOINT);
         }
-        
+
         Self {
             name,
             namespace: Some("default-namespace".to_string()), // Default namespace
@@ -190,9 +191,9 @@ impl Package {
                 DEFAULT_PACKAGE_JSON
             ));
         }
-        
+
         let package_path: PathBuf = package_json_path.parent().unwrap().to_path_buf();
-        
+
         let file: File = File::open(&package_json_path)?;
         let package_json: Package = Package::from(file);
         verify_package_integrity(&package_path, &package_json)?;
@@ -264,10 +265,7 @@ pub fn normalize_package_name(name: &str) -> String {
         .to_string()
 }
 
-pub fn verify_package_integrity(
-    package_path: &Path,
-    package_json: &Package,
-) -> Result<(), Error> {
+pub fn verify_package_integrity(package_path: &Path, package_json: &Package) -> Result<(), Error> {
     let entrypoint: PathBuf = package_path.join(&package_json.entrypoint);
     if !entrypoint.is_file() {
         return Err(anyhow!(
@@ -291,7 +289,7 @@ pub fn verify_package_integrity(
             uninstall_script.display()
         ));
     }
-    
+
     let dependencies_folder: PathBuf = package_path.join(DEFAULT_DEPENDENCIES_FOLDER);
     if !dependencies_folder.is_dir() {
         return Err(anyhow!(

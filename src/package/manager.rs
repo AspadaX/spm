@@ -3,12 +3,9 @@ use std::collections::HashSet;
 use std::fs::{DirEntry, File};
 use std::path::{Path, PathBuf};
 
-use crate::commons::utilities::{
-    construct_dependency_path, copy_dir_all,
-};
+use crate::commons::utilities::{construct_dependency_path, copy_dir_all};
 use crate::properties::{
-    DEFAULT_BIN_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER,
-    DEFAULT_SPM_PACKAGES_FOLDER,
+    DEFAULT_BIN_FOLDER, DEFAULT_PACKAGE_JSON, DEFAULT_SPM_FOLDER, DEFAULT_SPM_PACKAGES_FOLDER,
 };
 use crate::shell::{ExecutionContext, execute_shell_script_with_context};
 
@@ -389,11 +386,8 @@ impl LocalPackageManager {
         }
 
         // 3. Build the local installation path (namespace + name)
-        let target_path: PathBuf = construct_dependency_path(
-            package_path, 
-            &dependency.namespace, 
-            &dependency.name
-        )?;
+        let target_path: PathBuf =
+            construct_dependency_path(package_path, &dependency.namespace, &dependency.name)?;
 
         // 4. Abort if a folder with the same name already exists
         if target_path.exists() {
@@ -433,13 +427,14 @@ impl LocalPackageManager {
     ) -> Result<(), Error> {
         // Remove the dependency from the package.json
         // Since the `remove` method will return `None` when the pacakge is not found,
-        // we will use this result to determine if this is a valid package to remove. 
+        // we will use this result to determine if this is a valid package to remove.
         if let Some(_) = self.package.dependencies.remove(name, &namespace) {
             // Update the package.json file
             self.update_package_json()?;
-            
+
             // Remove the dependency directory
-            let dependency_path: PathBuf = construct_dependency_path(package_path, namespace, name)?;
+            let dependency_path: PathBuf =
+                construct_dependency_path(package_path, namespace, name)?;
             if dependency_path.exists() {
                 std::fs::remove_dir_all(&dependency_path)?;
             }
