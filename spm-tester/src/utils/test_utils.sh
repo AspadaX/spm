@@ -209,17 +209,20 @@ EOF
 assert_success() {
     local command="$1"
     local message="${2:-Command failed}"
-    
+
     # Run the command and capture its output and exit code
     local output
     output=$(eval "$command" 2>&1) || true
     local status=$?
-    
+
     # Print the output for debugging
     echo "$output"
-    
+
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
     if [ $status -eq 0 ]; then
         echo -e "${GREEN}✓ Command succeeded${NC}"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
         return 0
     else
         echo -e "${RED}✗ $message (status: $status)${NC}"

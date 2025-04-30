@@ -1,0 +1,15 @@
+{
+  "name": "init-lib-test",
+  "description": "Default description",
+  "version": "0.1.0",
+  "namespace": "default-namespace",
+  "interpreter": "Bash",
+  "entrypoint": "lib.sh",
+  "install": {
+    "setup_script": "install.sh",
+    "register_to_environment_tool": false
+  },
+  "uninstall": "uninstall.sh",
+  "is_library": true,
+  "dependencies": []
+}

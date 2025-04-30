@@ -21,7 +21,7 @@ fn main() {
     // Parse command line arguments
     let arguments: Arguments = Arguments::parse();
     // Initialize a package manager
-    let mut package_manager: PackageManager = match PackageManager::new() {
+    let package_manager: PackageManager = match PackageManager::new() {
         Ok(result) => result,
         Err(error) => {
             display_message(

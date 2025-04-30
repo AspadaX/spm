@@ -197,11 +197,6 @@ impl Dependencies {
         &self.0
     }
 
-    /// Returns mutable references to all dependencies
-    pub fn get_all_mut(&mut self) -> &mut HashSet<Dependency> {
-        &mut self.0
-    }
-
     /// Returns the number of dependencies
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
