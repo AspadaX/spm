@@ -83,20 +83,18 @@ pub enum ExecutionContext {
 
 /// Execute a shell script with the specified execution context
 pub fn execute_shell_script_with_context(
-    shell_script: &str, 
-    args: &[String], 
-    context: ExecutionContext
+    shell_script: &str,
+    args: &[String],
+    context: ExecutionContext,
 ) -> Result<(), Error> {
     let script_path: &std::path::Path = std::path::Path::new(shell_script);
-    
+
     // Determine the working directory based on the execution context
     let working_dir = match context {
-        ExecutionContext::ScriptDirectory => {
-            script_path.parent().unwrap_or_else(|| std::path::Path::new("."))
-        },
-        ExecutionContext::CurrentWorkingDirectory => {
-            std::path::Path::new(".")
-        },
+        ExecutionContext::ScriptDirectory => script_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(".")),
+        ExecutionContext::CurrentWorkingDirectory => std::path::Path::new("."),
     };
 
     if cfg!(target_os = "windows") {
@@ -106,19 +104,19 @@ pub fn execute_shell_script_with_context(
         if !args.is_empty() {
             cmd.args(args);
         }
-        
+
         match cmd.status() {
             Ok(status) if !status.success() => {
                 return Err(anyhow!(
                     "Windows CMD interpreter exited with a non-zero status"
                 ));
             }
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 return Err(anyhow!("Failed to start Windows CMD interpreter: {}", e));
             }
         }
-        
+
         return Ok(());
     }
 
@@ -128,12 +126,12 @@ pub fn execute_shell_script_with_context(
     if !args.is_empty() {
         cmd.args(args);
     }
-    
+
     match cmd.status() {
         Ok(status) if !status.success() => {
             return Err(anyhow!("Shell interpreter exited with a non-zero status"));
         }
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             return Err(anyhow!("Failed to start shell interpreter: {}", e));
         }
