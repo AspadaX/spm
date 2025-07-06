@@ -1,14 +1,16 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Error, Result, anyhow};
 use auth_git2::GitAuthenticator;
-use git2::{Config, FetchOptions, ProxyOptions, RemoteCallbacks, Repository, build::RepoBuilder};
+use git2::{Config, FetchOptions, ProxyOptions, RemoteCallbacks, build::RepoBuilder};
 
 use crate::{
-    display_control::{Level, display_form, display_message, display_tree_message, input_message},
-    package::{Package, PackageManager, PackageMetadata, is_inside_a_package},
+    display_control::{display_form, display_message, display_tree_message, input_message, Level},
+    program::{ProgramManager, Program},
+    properties::{DEFAULT_SPM_FOLDER, DEFAULT_TEMPORARY_FOLDER},
     shell::{execute_shell_script_with_context, ExecutionContext},
-    properties::{DEFAULT_SPM_FOLDER, DEFAULT_TEMPORARY_FOLDER}
 };
 
 // Create the temporary directory for cloning remote repositories
@@ -29,7 +31,12 @@ pub fn create_temp_directory() -> Result<PathBuf, Error> {
 // Clean up the temporary directory for a specific repository
 pub fn cleanup_temp_repository(repo_path: &Path) -> Result<(), Error> {
     if repo_path.exists()
-        && repo_path.starts_with(dirs::home_dir().unwrap().join(DEFAULT_SPM_FOLDER).join(DEFAULT_TEMPORARY_FOLDER))
+        && repo_path.starts_with(
+            dirs::home_dir()
+                .unwrap()
+                .join(DEFAULT_SPM_FOLDER)
+                .join(DEFAULT_TEMPORARY_FOLDER),
+        )
     {
         std::fs::remove_dir_all(repo_path)?;
     }
@@ -38,116 +45,91 @@ pub fn cleanup_temp_repository(repo_path: &Path) -> Result<(), Error> {
 }
 
 pub fn execute_run_command(
-    package_manager: &PackageManager,
+    program_manager: &ProgramManager,
     expression: String,
     args: &[String],
 ) -> Result<(), Error> {
     let path: &Path = Path::new(&expression);
 
-    // Case 1: input is a shell script
+    // Case 1: input is a shell script file
     if path.is_file() {
         // Execute regular shell script in the current working directory
-        return execute_shell_script_with_context(&expression, args, ExecutionContext::CurrentWorkingDirectory);
+        return execute_shell_script_with_context(
+            &expression,
+            args,
+            ExecutionContext::CurrentWorkingDirectory,
+        );
     }
 
-    // Case 2: input is a shell script project/package
-    if path.is_dir() {
-        // Validate the directory
-        if is_inside_a_package(path)? {
-            let package = Package::from_file(path)?;
-            let main_entrypoint_filename: &str = package.access_main_entrypoint();
-            
-            // Execute from the current working directory for local package run
-            return execute_shell_script_with_context(
-                &path
-                    .join(main_entrypoint_filename)
-                    .canonicalize()
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string(),
-                args,
-                ExecutionContext::CurrentWorkingDirectory
-            );
-        }
-    }
+    // Case 2: Check if it's an installed program name
+    let program_candidates: Vec<Program> = program_manager.keyword_search(&expression)?;
 
-    // Case 3: Check if it's an installed package name first
-    // Try to find exact package name match (ignoring namespace)
-    let package_candidates: Vec<PackageMetadata> = package_manager.keyword_search(&expression)?;
-
-    if !package_candidates.is_empty() {
-        // Run the package if it is exactly one match
-        if package_candidates.len() == 1 {
-            let package_metadata = &package_candidates[0];
+    if !program_candidates.is_empty() {
+        // Run the program if it is exactly one match
+        if program_candidates.len() == 1 {
+            let program = &program_candidates[0];
             display_message(
                 Level::Logging,
-                &format!("Running package: {}", package_metadata.get_full_name()),
+                &format!("Running program: {}", program.get_name()),
             );
             // Execute from current working directory when using spm run
             return execute_shell_script_with_context(
-                package_metadata.get_main_entry_point(), 
+                program.get_program_path().ok_or_else(|| anyhow!("Program path not available"))?,
                 args,
-                ExecutionContext::CurrentWorkingDirectory
+                ExecutionContext::CurrentWorkingDirectory,
             );
         }
 
         // If multiple matches, let user choose
-        display_message(Level::Logging, "Multiple packages found:");
-        for (index, package_metadata) in package_candidates.iter().enumerate() {
+        display_message(Level::Logging, "Multiple programs found:");
+        for (index, program) in program_candidates.iter().enumerate() {
             display_tree_message(
                 1,
-                &format!("{}: {}", index + 1, package_metadata.get_full_name()),
+                &format!("{}: {}", index + 1, program.get_name()),
             );
         }
-        let selection: usize = input_message("Please select a package to execute:")?
+        let selection: usize = input_message("Please select a program to execute:")?
             .trim()
             .parse::<usize>()?;
 
-        if selection < 1 || selection > package_candidates.len() {
+        if selection < 1 || selection > program_candidates.len() {
             return Err(anyhow!("Invalid selection"));
         }
 
-        let selected_package = &package_candidates[selection - 1];
+        let selected_program = &program_candidates[selection - 1];
         display_message(
             Level::Logging,
-            &format!("Running package: {}", selected_package.get_full_name()),
+            &format!("Running program: {}", selected_program.get_name()),
         );
 
         // Execute from current working directory when using spm run
         return execute_shell_script_with_context(
-            selected_package.get_main_entry_point(), 
-            args, 
-            ExecutionContext::CurrentWorkingDirectory
+            selected_program.get_program_path().ok_or_else(|| anyhow!("Program path not available"))?,
+            args,
+            ExecutionContext::CurrentWorkingDirectory,
         );
     }
 
-    // If we get here, no packages were found
-    return Err(anyhow!("No packages found with name: {}", expression));
+    // If we get here, no programs were found
+    return Err(anyhow!("No programs found with name: {}", expression));
 }
 
-pub fn show_packages(packages_metadata: &Vec<PackageMetadata>) {
+pub fn show_programs(programs: &Vec<Program>) {
     let mut form_data: Vec<Vec<String>> = Vec::new();
 
-    for (index, metadata) in packages_metadata.iter().enumerate() {
+    for (index, program) in programs.iter().enumerate() {
         form_data.push(vec![
             index.to_string(),
-            metadata.get_full_name(),
-            metadata.get_description().to_string(),
-            metadata.get_version().to_string(),
+            program.get_name().to_string(),
+            program.get_interpreter().to_string(),
+            program.get_program_path().unwrap_or("N/A").to_string(),
         ]);
     }
 
-    display_form(vec!["Index", "Name", "Description", "Version"], &form_data);
+    display_form(vec!["Index", "Name", "Interpreter", "Path"], &form_data);
 }
 
-pub fn fetch_remote_git_repository(base_url: &str, repository: &str) -> Result<PathBuf, Error> {
-    let mut clone_url: String = String::new();
-    if !base_url.ends_with("/") {
-        clone_url.push_str(&format!("{}/{}", base_url, repository));
-    } else {
-        clone_url.push_str(&format!("{}{}", base_url, repository));
-    }
-
+pub fn clone_git_repository(git_url: &str, destination: &Path) -> Result<(), Error> {
     // Initialize git configurations
     let auth: GitAuthenticator = GitAuthenticator::default();
     let git_config: Config = Config::open_default()?;
@@ -163,20 +145,12 @@ pub fn fetch_remote_git_repository(base_url: &str, repository: &str) -> Result<P
     fetch_options.proxy_options(proxy_options);
     fetch_options.remote_callbacks(remote_callbacks);
 
-    // Create a temp directory for the repository
-    let temp_dir = create_temp_directory()?;
-    let repo_temp_dir = temp_dir.join(repository);
-
-    // Clone into the temporary directory
-    let repository: Repository = RepoBuilder::new()
+    // Clone into the destination directory
+    RepoBuilder::new()
         .fetch_options(fetch_options)
-        .clone(&clone_url, &repo_temp_dir)?;
+        .clone(git_url, destination)?;
 
-    return Ok(repository.workdir().unwrap().to_path_buf());
-}
-
-pub fn is_git_repository_link(expression: &str) -> bool {
-    !Path::new(expression).exists()
+    Ok(())
 }
 
 /// Checks if a given directory is in the user's PATH environment variable.
@@ -217,140 +191,9 @@ pub fn is_directory_in_path(dir: &Path) -> bool {
     false
 }
 
-/// Checks if the binary directory is in the PATH and sets it up automatically if not.
-/// This function automatically adds the SPM bin directory to the user's PATH during first run.
-///
-/// # Arguments
-///
-/// * `package_manager` - A reference to the PackageManager to check its binary directory.
-pub fn check_bin_directory_in_path(package_manager: &PackageManager) {
-    if let Ok(bin_dir) = package_manager.get_bin_directory() {
-        if !is_directory_in_path(&bin_dir) {
-            let path_str = bin_dir.to_string_lossy();
+pub fn check_bin_directory_in_path() -> Result<bool, Error> {
+    let program_manager = ProgramManager::new()?;
+    let bin_directory = program_manager.get_bin_directory()?;
 
-            // Setting up automatically on first run
-            display_message(
-                Level::Logging,
-                &format!(
-                    "Setting up SPM environment: adding '{}' to your PATH.",
-                    path_str
-                ),
-            );
-
-            match setup_environment_for_user(&bin_dir) {
-                Ok(_) => {
-                    display_message(
-                        Level::Logging,
-                        &format!(
-                            "Successfully added '{}' to your PATH. You may need to restart your terminal or run 'source ~/.bashrc' (or your shell's equivalent) for changes to take effect.",
-                            path_str
-                        ),
-                    );
-                }
-                Err(e) => {
-                    display_message(
-                        Level::Error,
-                        &format!("Failed to set up environment: {}", e),
-                    );
-                    display_message(
-                        Level::Warn,
-                        &format!(
-                            "Please manually add '{}' to your PATH to use SPM commands.",
-                            path_str
-                        ),
-                    );
-
-                    // Show manual setup instructions
-                    if cfg!(target_os = "windows") {
-                        display_message(
-                            Level::Warn,
-                            "To add it to your PATH, update your Environment Variables through System Properties.",
-                        );
-                    } else {
-                        display_message(
-                            Level::Warn,
-                            &format!(
-                                "Add the following line to your shell profile (~/.bashrc, ~/.zshrc, etc.):\nexport PATH=\"{}:$PATH\"",
-                                path_str
-                            ),
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Sets up the environment for the user by adding the SPM bin directory to their PATH.
-///
-/// # Arguments
-///
-/// * `bin_dir` - A reference to the path of the bin directory to add to PATH.
-///
-/// # Returns
-///
-/// A `Result` indicating success or failure.
-fn setup_environment_for_user(bin_dir: &Path) -> Result<(), Error> {
-    let path_str = bin_dir.to_string_lossy();
-
-    // Determine which shell configuration file to modify
-    let home_dir = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
-
-    // Try to identify the user's shell
-    let shell_var = std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/bash"));
-
-    let config_file = if shell_var.contains("zsh") {
-        home_dir.join(".zshrc")
-    } else if shell_var.contains("fish") {
-        home_dir.join(".config/fish/config.fish")
-    } else {
-        // Default to bash
-        home_dir.join(".bashrc")
-    };
-
-    // Create the configuration file if it doesn't exist
-    if !config_file.exists() {
-        std::fs::File::create(&config_file)?;
-    }
-
-    // Read the existing content
-    let content: String = std::fs::read_to_string(&config_file)?;
-
-    // Check if the PATH export already exists
-    let export_line = if shell_var.contains("fish") {
-        format!("set -gx PATH \"{}\" $PATH", path_str)
-    } else {
-        format!("export PATH=\"{}:$PATH\"", path_str)
-    };
-
-    if !content.contains(&export_line) {
-        // Append the export line to the end of the file
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open(&config_file)?;
-
-        use std::io::Write;
-
-        // Add a newline if the file doesn't end with one
-        if !content.ends_with('\n') && !content.is_empty() {
-            writeln!(file)?;
-        }
-
-        // Add a comment explaining what this is for
-        writeln!(file, "\n# Added by Shell Package Manager (SPM)")?;
-        writeln!(file, "{}", export_line)?;
-
-        // For fish shell, we might need to do something different
-        if shell_var.contains("fish") {
-            // Execute the command to make it take effect in the current session
-            std::process::Command::new("fish")
-                .arg("-c")
-                .arg(&export_line)
-                .output()
-                .ok(); // Ignore errors here
-        }
-    }
-
-    Ok(())
+    Ok(is_directory_in_path(&bin_directory))
 }
